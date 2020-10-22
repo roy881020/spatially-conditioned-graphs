@@ -182,7 +182,10 @@ class InteractGraph(nn.Module):
         # Rescale the boxes
         for boxes_per_image, shapes in zip(boxes, image_shapes):
             ratio = size / max(shapes)
-            scaled_boxes.append(boxes_per_image * ratio)
+            # Clamp the boxes to avoid coords. out of the image due to numerical error
+            scaled_boxes.append(
+                torch.clamp(boxes_per_image * ratio, 0, size)
+            )
 
         scaled_boxes = torch.cat(scaled_boxes)
         device = scaled_boxes.device
