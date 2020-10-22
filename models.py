@@ -33,6 +33,7 @@ class InteractGraph(nn.Module):
                 representation_size, 
                 num_cls, human_idx,
                 object_class_to_target_class,
+                box_feature_size=1024,
                 fg_iou_thresh=0.5,
                 num_iter=1):
 
@@ -53,9 +54,9 @@ class InteractGraph(nn.Module):
         # Box head to map RoI features to low dimensional
         self.box_head = nn.Sequential(
             Flatten(start_dim=1),
-            nn.Linear(out_channels * roi_pool_size ** 2, node_encoding_size),
+            nn.Linear(out_channels * roi_pool_size ** 2, box_feature_size),
             nn.ReLU(),
-            nn.Linear(node_encoding_size, node_encoding_size),
+            nn.Linear(box_feature_size, box_feature_size),
             nn.ReLU()
         )
 
