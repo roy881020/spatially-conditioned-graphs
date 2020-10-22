@@ -118,6 +118,35 @@ class InteractGraph(nn.Module):
             bias=False
         )
 
+        # Extra bipartite graph for spatial information
+        self.adjacency_x = nn.Sequential(
+            nn.Linear(node_encoding_size*2, representation_size),
+            nn.ReLU(),
+            nn.Linear(representation_size, int(representation_size/2)),
+            nn.ReLU(),
+            nn.Linear(int(representation_size/2), 1),
+            nn.Sigmoid()
+        )
+        self.sub_to_obj_x = nn.Sequential(
+            nn.Linear(node_encoding_size, representation_size),
+            nn.ReLU()
+        )
+        self.obj_to_sub_x = nn.Sequential(
+            nn.Linear(node_encoding_size, representation_size),
+            nn.ReLU()
+        )
+        self.sub_update_x = nn.Linear(
+            node_encoding_size + representation_size,
+            node_encoding_size,
+            bias=False
+        )
+        self.obj_update_x = nn.Linear(
+            node_encoding_size + representation_size,
+            node_encoding_size,
+            bias=False
+        )
+        
+
     def associate_with_ground_truth(self, boxes_h, boxes_o, targets):
         """
         Arguements:
@@ -239,12 +268,11 @@ class InteractGraph(nn.Module):
             if not torch.all(labels[:n_h]==self.human_idx):
                 raise AssertionError("Human detections are not permuted to the top")
 
-            node_encodings = torch.cat([
-                box_features[counter: counter+n],
-                box_spatial[counter: counter+n]
-            ], 1)
+            node_encodings = box_features[counter: counter+n]
+            node_spatial = box_spatial[counter: counter+n]
             # Duplicate human nodes
             h_node_encodings = node_encodings[:n_h]
+            h_node_spatial = node_spatial[:n_h]
             # Get the pairwise index between every human and object instance
             x, y = torch.meshgrid(
                 torch.arange(n_h, device=device),
@@ -260,6 +288,7 @@ class InteractGraph(nn.Module):
             x = x.flatten(); y = y.flatten()
 
             adjacency_matrix = torch.ones(n_h, n, device=device)
+            adjacency_matrix_x = torch.ones(n_h, n, device=device)
             for i in range(self.num_iter):
                 # Compute weights of each edge
                 weights = self.adjacency(torch.cat([
@@ -280,13 +309,29 @@ class InteractGraph(nn.Module):
                     torch.mm(adjacency_matrix.t(), self.sub_to_obj(h_node_encodings))
                 ], 1))
 
+                # Spatial graph
+                weights_x = self.adjacency_x(torch.cat([
+                    h_node_spatial[x],
+                    node_spatial[y]
+                ], 1))
+                adjacency_matrix_x = weights_x.reshape(n_h, n)
+                h_node_spatial = self.sub_update_x(torch.cat([
+                    h_node_spatial,
+                    torch.mm(adjacency_matrix_x, self.obj_to_sub_x(node_spatial))
+                ], 1))
+                node_spatial = self.obj_update_x(torch.cat([
+                    node_spatial,
+                    torch.mm(adjacency_matrix_x.t(), self.sub_to_obj_x(h_node_spatial))
+                ], 1))
+
             if targets is not None:
                 all_labels.append(self.associate_with_ground_truth(
                     coords[x_keep], coords[y_keep], targets[b_idx])
                 )
                 
             all_box_pair_features.append(torch.cat([
-                h_node_encodings[x_keep], node_encodings[y_keep]
+                torch.cat([h_node_encodings[x_keep], h_node_spatial[x_keep]], 1),
+                torch.cat([node_encodings[y_keep], node_spatial[y_keep]], 1)
             ], 1))
             all_boxes_h.append(coords[x_keep])
             all_boxes_o.append(coords[y_keep])
@@ -295,6 +340,7 @@ class InteractGraph(nn.Module):
             # pre-computed object detection scores with LIS
             all_prior.append(
                 adjacency_matrix[x_keep, y_keep, None] *
+                adjacency_matrix_x[x_keep, y_keep, None] *
                 self.compute_prior_scores(x_keep, y_keep, scores, labels)
             )
 
@@ -324,8 +370,8 @@ class InteractGraphNet(models.GenericHOINetwork):
             # Pooler parameters
             output_size=7, sampling_ratio=2,
             # Box pair head parameters
-            node_encoding_size=2048,
-            representation_size=2048,
+            node_encoding_size=1024,
+            representation_size=1024,
             num_classes=117,
             fg_iou_thresh=0.5,
             num_iterations=1,
@@ -360,8 +406,8 @@ class InteractGraphNet(models.GenericHOINetwork):
         )
 
         box_pair_predictor = BoxPairPredictor(
-            input_size=node_encoding_size * 2,
-            representation_size=representation_size,
+            input_size=(node_encoding_size + 1024) * 2,
+            representation_size=representation_size + 1024,
             num_classes=num_classes
         )
 
