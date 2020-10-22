@@ -273,7 +273,7 @@ class InteractGraph(nn.Module):
                 # Compute weights of each edge
                 weights = self.adjacency(torch.cat([
                     torch.cat([h_node_encodings[x], h_node_spatial[x]], 1),
-                    torch.cat([node_encodings[y]], node_spatial[y], 1)
+                    torch.cat([node_encodings[y], node_spatial[y]], 1)
                 ], 1))
                 adjacency_matrix = weights.reshape(n_h, n)
                 # Compute object node to human node messages
@@ -374,8 +374,8 @@ class InteractGraphNet(models.GenericHOINetwork):
         )
 
         box_pair_predictor = BoxPairPredictor(
-            input_size=node_encoding_size * 2,
-            representation_size=representation_size,
+            input_size=(node_encoding_size + 1024)* 2,
+            representation_size=representation_size + 1024,
             num_classes=num_classes
         )
 
