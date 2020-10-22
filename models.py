@@ -16,7 +16,7 @@ from torchvision.ops import MultiScaleRoIAlign
 from torchvision.models.detection import transform
 
 import pocket.models as models
-from pocket.ops import Flatten
+from pocket.ops import Flatten, generate_masks
 
 def LIS(x, T=8.3, k=12, w=10):
     """
@@ -60,13 +60,29 @@ class InteractGraph(nn.Module):
         )
 
         # Spatial head to process spatial encodings
-        self.spatial_head = nn.Sequential(
-            nn.Conv2d(2, 64, 5),
+        self.box_spatial_head = nn.Sequential(
+            # First block
+            nn.Conv2d(1, 32, 5, stride=2),
+            nn.BatchNorm2d(32),
+            nn.ReLU(),
+            nn.Conv2d(32, 32, 3),
+            nn.BatchNorm2d(32),
+            nn.ReLU(),
+            nn.Conv2d(32, 32, 3),
+            nn.BatchNorm2d(32),
+            nn.ReLU(),
+            # Second block
+            nn.Conv2d(32, 64, 3, stride=2),
+            nn.BatchNorm2d(64),
+            nn.ReLU(),
+            nn.Conv2d(64, 64, 3),
+            nn.BatchNorm2d(64),
+            nn.ReLU(),
+            nn.Conv2d(64, 64, 3),
+            nn.BatchNorm2d(64),
+            nn.ReLU(),
             nn.MaxPool2d(2),
-            nn.Conv2d(64, 32, 5),
-            nn.MaxPool2d(2),
-            Flatten(start_dim=1),
-            nn.Linear(5408, 2048)
+            Flatten(start_dim=1)    # Nx1024
         )
 
         # Compute adjacency matrix
@@ -150,40 +166,28 @@ class InteractGraph(nn.Module):
         return prior
 
     @staticmethod
-    def get_spatial_encoding(x, y, boxes, size=64):
+    def get_spatial_encoding(boxes, image_shapes, size=64):
         """
+        Compute the spatial encoding of a bounding box by scaling the 
+        longer side of the image to designated size and fill the area
+        that a box covers with ones
+
         Arguments:
-            x(Tensor[M]): Indices of human boxes (paired)
-            y(Tensor[M]): Indices of object boxes (paired)
-            boxes(Tensor[N, 4])
+            box_coords(List[Tensor])
+            image_shapes(List[Tuple[height, width]])
             size(int): Spatial resolution of the encoding
         """
-        device = boxes.device
+        scaled_boxes = []
+        # Rescale the boxes
+        for boxes_per_image, shapes in zip(boxes, image_shapes):
+            ratio = size / max(shapes)
+            scaled_boxes.append(boxes_per_image * ratio)
 
-        boxes_1 = boxes[x].clone().cpu()
-        boxes_2 = boxes[y].clone().cpu()
+        scaled_boxes = torch.cat(scaled_boxes)
+        device = scaled_boxes.device
+        encodings = generate_masks(scaled_boxes.cpu(), size, size)
 
-        # Find the top left and bottom right corners
-        top_left = torch.min(boxes_1[:, :2], boxes_2[:, :2])
-        bottom_right = torch.max(boxes_1[:, 2:], boxes_2[:, 2:])
-        # Shift
-        boxes_1 -= top_left.repeat(1, 2)
-        boxes_2 -= top_left.repeat(1, 2)
-        # Scale
-        ratio = size / (bottom_right - top_left)
-        boxes_1 *= ratio.repeat(1, 2)
-        boxes_2 *= ratio.repeat(1, 2)
-        # Round to integer
-        boxes_1.round_(); boxes_2.round_()
-        boxes_1 = boxes_1.long()
-        boxes_2 = boxes_2.long()
-
-        spatial_encoding = torch.zeros(len(boxes_1), 2, size, size)
-        for i, (b1, b2) in enumerate(zip(boxes_1, boxes_2)):
-            spatial_encoding[i, 0, b1[1]:b1[3], b1[0]:b1[2]] = 1
-            spatial_encoding[i, 1, b2[1]:b2[3], b2[0]:b2[2]] = 1
-
-        return spatial_encoding.to(device)
+        return encodings.to(device)
 
     def forward(self, features, image_shapes, box_features, box_coords, box_labels, box_scores, targets=None):
         """
@@ -210,6 +214,8 @@ class InteractGraph(nn.Module):
             assert targets is not None, "Targets should be passed during training"
 
         box_features = self.box_head(box_features)
+        box_masks = self.get_spatial_encoding(box_coords, image_shapes)
+        box_spatial = self.box_spatial_head(box_masks[:, None, :, :])
 
         num_boxes = [len(boxes_per_image) for boxes_per_image in box_coords]
         
@@ -229,7 +235,10 @@ class InteractGraph(nn.Module):
             if not torch.all(labels[:n_h]==self.human_idx):
                 raise AssertionError("Human detections are not permuted to the top")
 
-            node_encodings = box_features[counter: counter+n]
+            node_encodings = torch.cat([
+                box_features[counter: counter+n],
+                box_spatial[counter: counter+n]
+            ], 1)
             # Duplicate human nodes
             h_node_encodings = node_encodings[:n_h]
             # Get the pairwise index between every human and object instance
@@ -245,10 +254,6 @@ class InteractGraph(nn.Module):
             # Human nodes have been duplicated and will be treated independently
             # of the humans included amongst object nodes
             x = x.flatten(); y = y.flatten()
-
-            # Compute spatial encoding and edge features
-            spatial_encodings = self.get_spatial_encoding(x_keep, y_keep, coords)
-            edge_features = self.spatial_head(spatial_encodings)
 
             adjacency_matrix = torch.ones(n_h, n, device=device)
             for i in range(self.num_iter):
@@ -278,7 +283,7 @@ class InteractGraph(nn.Module):
                 
             all_box_pair_features.append(torch.cat([
                 h_node_encodings[x_keep], node_encodings[y_keep]
-            ], 1) * edge_features)
+            ], 1))
             all_boxes_h.append(coords[x_keep])
             all_boxes_o.append(coords[y_keep])
             all_object_class.append(labels[y_keep])
@@ -315,8 +320,8 @@ class InteractGraphNet(models.GenericHOINetwork):
             # Pooler parameters
             output_size=7, sampling_ratio=2,
             # Box pair head parameters
-            node_encoding_size=1024,
-            representation_size=1024,
+            node_encoding_size=2048,
+            representation_size=2048,
             num_classes=117,
             fg_iou_thresh=0.5,
             num_iterations=1,
