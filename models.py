@@ -86,28 +86,30 @@ class InteractGraph(nn.Module):
             Flatten(start_dim=1)    # Nx1024
         )
 
+        self.spatial_attention = nn.Linear(1024, 1024, bias=False)
+
         # Compute adjacency matrix
         self.adjacency = nn.Sequential(
-            nn.Linear(node_encoding_size*2, representation_size),
+            nn.Linear((node_encoding_size + 1024)*2, 2048),
             nn.ReLU(),
-            nn.Linear(representation_size, int(representation_size/2)),
+            nn.Linear(2048, 1024),
             nn.ReLU(),
-            nn.Linear(int(representation_size/2), 1),
+            nn.Linear(1024, 1),
             nn.Sigmoid()
         )
 
         # Compute messages
-        self.sub_to_obj = nn.Sequential(
+        self.hum_msg = nn.Sequential(
             nn.Linear(node_encoding_size, representation_size),
             nn.ReLU()
         )
-        self.obj_to_sub = nn.Sequential(
+        self.obj_msg = nn.Sequential(
             nn.Linear(node_encoding_size, representation_size),
             nn.ReLU()
         )
 
         # Update node hidden states
-        self.sub_update = nn.Linear(
+        self.hum_update = nn.Linear(
             node_encoding_size + representation_size,
             node_encoding_size,
             bias=False
@@ -239,12 +241,11 @@ class InteractGraph(nn.Module):
             if not torch.all(labels[:n_h]==self.human_idx):
                 raise AssertionError("Human detections are not permuted to the top")
 
-            node_encodings = torch.cat([
-                box_features[counter: counter+n],
-                box_spatial[counter: counter+n]
-            ], 1)
+            node_encodings = box_features[counter: counter+n]
+            node_spatial = box_spatial[counter: counter+n]
             # Duplicate human nodes
             h_node_encodings = node_encodings[:n_h]
+            h_node_spatial = node_spatial[:n_h]
             # Get the pairwise index between every human and object instance
             x, y = torch.meshgrid(
                 torch.arange(n_h, device=device),
@@ -258,26 +259,38 @@ class InteractGraph(nn.Module):
             # Human nodes have been duplicated and will be treated independently
             # of the humans included amongst object nodes
             x = x.flatten(); y = y.flatten()
+            # Repeat spatial encodings [n_h, n, 1024]
+            node_spatial_repeat = node_spatial.repeat(n_h, 1, 1)
+            h_node_spatial_repeat = h_node_spatial.repeat(n, 1, 1).permute([1, 0, 2])
+            # Compute directional encodings
+            h_to_o_spatial = self.spatial_attention(
+                (node_spatial_repeat - h_node_spatial_repeat).reshape(-1, 1024)
+            ).reshape(n_h, n, 1024)
+            o_to_h_spatial = -h_to_o_spatial
 
             adjacency_matrix = torch.ones(n_h, n, device=device)
             for i in range(self.num_iter):
                 # Compute weights of each edge
                 weights = self.adjacency(torch.cat([
-                    h_node_encodings[x],
-                    node_encodings[y]
+                    torch.cat([h_node_encodings[x], h_node_spatial[x]], 1),
+                    torch.cat([node_encodings[y]], node_spatial[y], 1)
                 ], 1))
                 adjacency_matrix = weights.reshape(n_h, n)
-
+                # Compute object node to human node messages
+                obj_message = self.obj_msg(node_encodings).repeat(
+                    n_h, 1, 1) * o_to_h_spatial
                 # Update human nodes
-                h_node_encodings = self.sub_update(torch.cat([
+                h_node_encodings = self.hum_update(torch.cat([
                     h_node_encodings,
-                    torch.mm(adjacency_matrix, self.obj_to_sub(node_encodings))
+                    (adjacency_matrix[..., None] * obj_message).sum(1)
                 ], 1))
-
+                # Compute human node to object node messages
+                hum_message = self.hum_msg(h_node_encodings).repeat(
+                    n, 1, 1).permute([1, 0, 2]) * h_to_o_spatial
                 # Update object nodes (including human nodes)
                 node_encodings = self.obj_update(torch.cat([
                     node_encodings,
-                    torch.mm(adjacency_matrix.t(), self.sub_to_obj(h_node_encodings))
+                    (adjacency_matrix[..., None] * hum_message).sum(0)
                 ], 1))
 
             if targets is not None:
@@ -286,7 +299,8 @@ class InteractGraph(nn.Module):
                 )
                 
             all_box_pair_features.append(torch.cat([
-                h_node_encodings[x_keep], node_encodings[y_keep]
+                torch.cat([h_node_encodings[x_keep], h_node_spatial[x_keep]], 1),
+                torch.cat([node_encodings[y_keep], node_spatial[y_keep]], 1)
             ], 1))
             all_boxes_h.append(coords[x_keep])
             all_boxes_o.append(coords[y_keep])
@@ -324,8 +338,8 @@ class InteractGraphNet(models.GenericHOINetwork):
             # Pooler parameters
             output_size=7, sampling_ratio=2,
             # Box pair head parameters
-            node_encoding_size=2048,
-            representation_size=2048,
+            node_encoding_size=1024,
+            representation_size=1024,
             num_classes=117,
             fg_iou_thresh=0.5,
             num_iterations=1,
