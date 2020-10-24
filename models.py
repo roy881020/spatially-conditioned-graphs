@@ -65,8 +65,7 @@ class InteractGraph(nn.Module):
             nn.ReLU(),
             nn.Linear(representation_size, int(representation_size/2)),
             nn.ReLU(),
-            nn.Linear(int(representation_size/2), 1),
-            nn.Sigmoid()
+            nn.Linear(int(representation_size/2), 1)
         )
 
         # Compute messages
@@ -212,13 +211,13 @@ class InteractGraph(nn.Module):
                 # Update human nodes
                 h_node_encodings = self.sub_update(torch.cat([
                     h_node_encodings,
-                    torch.mm(adjacency_matrix, self.obj_to_sub(node_encodings))
+                    torch.mm(adjacency_matrix.softmax(1), self.obj_to_sub(node_encodings))
                 ], 1))
 
                 # Update object nodes (including human nodes)
                 node_encodings = self.obj_update(torch.cat([
                     node_encodings,
-                    torch.mm(adjacency_matrix.t(), self.sub_to_obj(h_node_encodings))
+                    torch.mm(adjacency_matrix.t().softmax(1), self.sub_to_obj(h_node_encodings))
                 ], 1))
 
             if targets is not None:
@@ -235,7 +234,7 @@ class InteractGraph(nn.Module):
             # The prior score is the product between edge weights and the
             # pre-computed object detection scores with LIS
             all_prior.append(
-                adjacency_matrix[x_keep, y_keep, None] *
+                adjacency_matrix[x_keep, y_keep, None].sigmoid() *
                 self.compute_prior_scores(x_keep, y_keep, scores, labels)
             )
 
