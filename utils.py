@@ -92,19 +92,19 @@ class CustomisedDataset(Dataset):
         return [image], [detection], [target]
 
 
-def test(net, test_loader):
-    testset = test_loader.dataset.dataset
+def test(net, test_loader, testset):
 
     ap_test = DetectionAPMeter(600, num_gt=testset.anno_interaction, algorithm='11P')
     net.eval()
     for batch in tqdm(test_loader):
-        inputs = pocket.ops.relocate_to_cuda(batch[:-1])
+        targets = [b['target'] for b in batch]
+        inputs = pocket.ops.relocate_to_cuda(batch)
         with torch.no_grad():
-            output = net(*inputs)
+            output = net(inputs)
         if output is None:
             continue
 
-        for result, target in zip(output, batch[-1]):
+        for result, target in zip(output, targets):
             result = pocket.ops.relocate_to_cpu(result)
             # Reformat the predicted classes and scores
             # TARGET_CLASS: [SCORE, BINARY_LABELS]
@@ -209,3 +209,16 @@ class CustomisedEngine(DistributedLearningEngine):
     #         return ap_test.eval()
     #     else:
     #         return None
+
+class PreprocessedDataset(Dataset):
+    def __init__(self, src_dir):
+        self.dir = src_dir
+        self.items = os.listdir()
+        self.items().sort()
+    def __len__(self):
+        return len(self.items)
+    def __getitem__(self, i):
+        with open(os.path.join(self.dir, self.items[i]), 'rb') as f:
+            return pocket.ops.to_tensor(pickle.load(f), input_format='dict')
+def preprocessed_collate(batch):
+    return batch
