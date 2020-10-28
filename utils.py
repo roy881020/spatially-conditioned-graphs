@@ -213,12 +213,16 @@ class CustomisedEngine(DistributedLearningEngine):
 class PreprocessedDataset(Dataset):
     def __init__(self, src_dir):
         self.dir = src_dir
-        self.items = os.listdir()
-        self.items().sort()
+        self.items = os.listdir(src_dir)
+        self.items.sort()
     def __len__(self):
         return len(self.items)
     def __getitem__(self, i):
         with open(os.path.join(self.dir, self.items[i]), 'rb') as f:
-            return pocket.ops.to_tensor(pickle.load(f), input_format='dict')
+            data = pickle.load(f)
+        data['target'] = pocket.ops.to_tensor(data['target'], input_format='dict')
+        data['size'] = torch.as_tensor(data['size'])
+        return data
+
 def preprocessed_collate(batch):
     return batch
