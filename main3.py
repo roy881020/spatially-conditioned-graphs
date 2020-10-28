@@ -40,12 +40,12 @@ MODELS = {
 def main(args):
 
     torch.cuda.set_device(0)
-    torch.backends.cudnn.benchmark = True
+#    torch.backends.cudnn.benchmark = True
 
     hico_test = HICODet(None, '../Incubator/InteractRCNN/hicodet/instances_test2015.json')
 
-    trainset = PreprocessedDataset('./preprocessed/train2015.pkl')
-    testset = PreprocessedDataset('./preprocessed/test2015.pkl')
+    trainset = PreprocessedDataset('./preprocessed/train2015')
+    testset = PreprocessedDataset('./preprocessed/test2015')
 
     train_loader = DataLoader(
         dataset=trainset,
@@ -63,7 +63,7 @@ def main(args):
     # Fix random seed for model synchronisation
     torch.manual_seed(args.random_seed)
 
-    net = MODELS[args.model_name]
+    net = MODELS[args.model_name]()
 
     if os.path.exists(args.model_path):
         print("Loading model from ", args.model_path)
