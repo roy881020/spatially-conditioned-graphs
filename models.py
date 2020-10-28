@@ -16,7 +16,7 @@ from torchvision.ops import MultiScaleRoIAlign
 from torchvision.models.detection import transform
 
 import pocket.models as models
-from pocket.ops import Flatten
+from pocket.ops import Flatten, generate_masks
 
 def LIS(x, T=8.3, k=12, w=10):
     """
@@ -332,3 +332,280 @@ class InteractGraphNet(models.GenericHOINetwork):
     def load_state_dict(self, x):
         """Override method to only load state dict of the interaction head"""
         self.interaction_head.load_state_dict(x)
+
+def compute_interaction_classification_loss(scores, box_pair_labels):
+    """
+    Arguments:
+        scores(Tensor[N, K])
+        box_pair_labels(List[Tensor])
+    """
+    total_loss = 0
+    num_boxes = [len(labels) for labels in box_pair_labels]
+    for scores_in_image, labels_in_image in zip(
+        scores.split(num_boxes), box_pair_labels
+    ):
+        # Remove invalid classes for a given object type
+        i, j = scores_in_image.nonzero().unbind(1)
+        loss = nn.functional.binary_cross_entropy(
+            scores_in_image[i, j], labels_in_image[i, j], reduction='mean'
+        )
+
+        total_loss += loss
+
+    return total_loss / len(num_boxes)
+
+def postprocess(scores, boxes_h, boxes_o, object_class, labels):
+    num_boxes = [len(boxes_per_image) for boxes_per_image in boxes_h]
+    scores = scores.split(num_boxes)
+    if len(labels) == 0:
+        labels = [[] for _ in range(len(num_boxes))]
+
+    results = []
+    for s, b_h, b_o, o, l in zip(scores, boxes_h, boxes_o, object_class, labels):
+        # Remove irrelevant classes
+        keep_cls = [row.nonzero().squeeze(1) for row in s]
+        # Remove box pairs without predictions
+        keep_idx = {
+            k: v for k, v in enumerate(keep_cls) if len(v)
+        }
+
+        box_keep = list(keep_idx.keys())
+        if len(box_keep) == 0:
+            continue
+        result_dict = dict(
+            boxes_h=b_h[box_keep],
+            boxes_o=b_o[box_keep],
+            object=o[box_keep],
+            labels=list(keep_idx.values()),
+            scores=[s[k, v] for k, v in keep_idx.items()]
+        )
+        # If binary labels are provided
+        if len(l):
+            result_dict["gt_labels"] = [l[k, v] for k, v in keep_idx.items()]
+
+        results.append(result_dict)
+
+    return results
+
+class ModelWithGT(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.box_pair_predictor = BoxPairPredictor(
+            2048 + 117,
+            1024,
+            117
+        )
+    def forward(self, x):
+        """
+        x(List[dict])
+            'features': Nx2048
+            'boxes_h': Nx4
+            'boxes_o': Nx4
+            'object_class': N
+            'labels': Nx117
+            'prior': Nx117
+            'index': 1
+        """
+        box_pair_features = torch.cat([
+            x_per_image['features'] for x_per_image in x
+        ])
+        box_pair_prior = torch.cat([
+            x_per_image['prior'] for x_per_image in x
+        ])
+        box_pair_labels = [x_per_image['labels'] for x_per_image in x]
+
+        scores = self.box_pair_predictor(torch.cat([
+            box_pair_features, torch.cat(box_pair_labels)
+        ], 1), box_pair_prior)
+        results = postprocess(
+            scores,
+            [x_per_image['boxes_h'] for x_per_image in x],
+            [x_per_image['boxes_o'] for x_per_image in x],
+            [x_per_image['object_class'] for x_per_image in x],
+            box_pair_labels
+        )
+
+        if len(results) == 0:
+            return None
+
+        if self.training:
+            results.append(compute_interaction_classification_loss(
+                scores, box_pair_labels
+            ))
+
+        return results
+
+class ModelWith2Masks(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.box_pair_predictor = BoxPairPredictor(
+            2048 + 2048,
+            2048,
+            117
+        )
+        self.spatial_head = nn.Sequential(
+            nn.Conv2d(2, 64, 5),
+            nn.MaxPool2d(2),
+            nn.Conv2d(64, 32, 5),
+            nn.MaxPool2d(2),
+            Flatten(start_dim=1),
+            nn.Linear(5408, 2048)
+        )
+
+    @staticmethod
+    def get_spatial_encoding(boxes_1, boxes_2, size=64):
+        """
+        Arguments:
+            x(Tensor[M]): Indices of human boxes (paired)
+            y(Tensor[M]): Indices of object boxes (paired)
+            boxes(Tensor[N, 4])
+            size(int): Spatial resolution of the encoding
+        """
+        device = boxes_1.device
+        boxes_1 = boxes_1.clone().cpu()
+        boxes_2 = boxes_2.clone().cpu()
+
+        # Find the top left and bottom right corners
+        top_left = torch.min(boxes_1[:, :2], boxes_2[:, :2])
+        bottom_right = torch.max(boxes_1[:, 2:], boxes_2[:, 2:])
+        # Shift
+        boxes_1 -= top_left.repeat(1, 2)
+        boxes_2 -= top_left.repeat(1, 2)
+        # Scale
+        ratio = size / (bottom_right - top_left)
+        boxes_1 *= ratio.repeat(1, 2)
+        boxes_2 *= ratio.repeat(1, 2)
+        # Round to integer
+        boxes_1.round_(); boxes_2.round_()
+        boxes_1 = boxes_1.long()
+        boxes_2 = boxes_2.long()
+
+        spatial_encoding = torch.zeros(len(boxes_1), 2, size, size)
+        for i, (b1, b2) in enumerate(zip(boxes_1, boxes_2)):
+            spatial_encoding[i, 0, b1[1]:b1[3], b1[0]:b1[2]] = 1
+            spatial_encoding[i, 1, b2[1]:b2[3], b2[0]:b2[2]] = 1
+
+        return spatial_encoding.to(device)
+
+    def forward(self, x):
+        boxes_h = [x_per_image['boxes_h'] for x_per_image in x]
+        boxes_o = [x_per_image['boxes_o'] for x_per_image in x]
+        box_pair_spatial = self.get_spatial_encoding(
+            torch.cat(boxes_h), torch.cat(boxes_o)
+        )
+        box_pair_features = torch.cat([
+            x_per_image['features'] for x_per_image in x
+        ])
+        box_pair_prior = torch.cat([
+            x_per_image['prior'] for x_per_image in x
+        ])
+        box_pair_labels = [x_per_image['labels'] for x_per_image in x]
+
+        scores = self.box_pair_predictor(torch.cat([
+            box_pair_features, box_pair_spatial
+        ], 1), box_pair_prior)
+        results = postprocess(
+            scores, boxes_h, boxes_o,
+            [x_per_image['object_class'] for x_per_image in x],
+            box_pair_labels
+        )
+
+        if len(results) == 0:
+            return None
+
+        if self.training:
+            results.append(compute_interaction_classification_loss(
+                scores, box_pair_labels
+            ))
+
+class ModelWith1Mask(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.box_pair_predictor = BoxPairPredictor(
+            2048 + 2048,
+            2048,
+            117
+        )
+        # Spatial head to process spatial encodings
+        self.box_spatial_head = nn.Sequential(
+            # First block
+            nn.Conv2d(1, 32, 5, stride=2),
+            nn.BatchNorm2d(32),
+            nn.ReLU(),
+            nn.Conv2d(32, 32, 3),
+            nn.BatchNorm2d(32),
+            nn.ReLU(),
+            nn.Conv2d(32, 32, 3),
+            nn.BatchNorm2d(32),
+            nn.ReLU(),
+            # Second block
+            nn.Conv2d(32, 64, 3, stride=2),
+            nn.BatchNorm2d(64),
+            nn.ReLU(),
+            nn.Conv2d(64, 64, 3),
+            nn.BatchNorm2d(64),
+            nn.ReLU(),
+            nn.Conv2d(64, 64, 3),
+            nn.BatchNorm2d(64),
+            nn.ReLU(),
+            nn.MaxPool2d(2),
+            Flatten(start_dim=1)    # Nx1024
+        )
+
+    @staticmethod
+    def get_spatial_encoding(boxes, image_shapes, size=64):
+        """
+        Compute the spatial encoding of a bounding box by scaling the 
+        longer side of the image to designated size and fill the area
+        that a box covers with ones
+        Arguments:
+            box_coords(List[Tensor])
+            image_shapes(List[Tuple[height, width]])
+            size(int): Spatial resolution of the encoding
+        """
+        scaled_boxes = []
+        # Rescale the boxes
+        for boxes_per_image, shapes in zip(boxes, image_shapes):
+            ratio = size / max(shapes)
+            # Clamp the boxes to avoid coords. out of the image due to numerical error
+            scaled_boxes.append(
+                torch.clamp(boxes_per_image * ratio, 0, size)
+            )
+
+        scaled_boxes = torch.cat(scaled_boxes)
+        device = scaled_boxes.device
+        encodings = generate_masks(scaled_boxes.cpu(), size, size)
+
+        return encodings.to(device)
+
+    def forward(self, x):
+        boxes_h = [x_per_image['boxes_h'] for x_per_image in x]
+        boxes_o = [x_per_image['boxes_o'] for x_per_image in x]
+        image_sizes = [x_per_image['size'] for x_per_image in x]
+        h_spatial = self.get_spatial_encoding(boxes_h, image_sizes)
+        o_spatial = self.get_spatial_encoding(boxes_o, image_sizes)
+
+        box_pair_features = torch.cat([
+            x_per_image['features'] for x_per_image in x
+        ])
+        box_pair_prior = torch.cat([
+            x_per_image['prior'] for x_per_image in x
+        ])
+        box_pair_labels = [x_per_image['labels'] for x_per_image in x]
+
+        scores = self.box_pair_predictor(torch.cat([
+            box_pair_features, h_spatial, o_spatial
+        ], 1), box_pair_prior)
+        results = postprocess(
+            scores, boxes_h, boxes_o,
+            [x_per_image['object_class'] for x_per_image in x],
+            box_pair_labels
+        )
+
+        if len(results) == 0:
+            return None
+
+        if self.training:
+            results.append(compute_interaction_classification_loss(
+                scores, box_pair_labels
+            ))
