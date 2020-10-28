@@ -490,9 +490,11 @@ class ModelWith2Masks(nn.Module):
     def forward(self, x):
         boxes_h = [x_per_image['boxes_h'] for x_per_image in x]
         boxes_o = [x_per_image['boxes_o'] for x_per_image in x]
-        box_pair_spatial = self.get_spatial_encoding(
+        masks = self.get_spatial_encoding(
             torch.cat(boxes_h), torch.cat(boxes_o)
         )
+        box_pair_spatial = self.spatial_head(masks)
+
         box_pair_features = torch.cat([
             x_per_image['features'] for x_per_image in x
         ])
@@ -584,6 +586,9 @@ class ModelWith1Mask(nn.Module):
         image_sizes = [x_per_image['size'] for x_per_image in x]
         h_spatial = self.get_spatial_encoding(boxes_h, image_sizes)
         o_spatial = self.get_spatial_encoding(boxes_o, image_sizes)
+
+        h_spatial = self.box_spatial_head(h_spatial[:, None, :, :])
+        o_spatial = self.box_spatial_head(o_spatial[:, None, :, :])
 
         box_pair_features = torch.cat([
             x_per_image['features'] for x_per_image in x
