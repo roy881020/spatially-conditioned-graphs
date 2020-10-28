@@ -11,13 +11,15 @@ import pocket
 from pocket.data import HICODet
 from pocket.utils import NumericalMeter, DetectionAPMeter, HandyTimer
 
-from models import ModelWithGT, ModelWith1Mask, ModelWith2Masks
+from models import ModelWithGT, ModelWith1Mask, ModelWith2Masks, ModelWithNone, ModelWithVec
 from utils import preprocessed_collate, PreprocessedDataset, test
 
 MODELS = {
+    'baseline': ModelWithNone,
     'GT': ModelWithGT,
     '2Masks': ModelWith2Masks,
     '1Mask': ModelWith1Mask,
+    'handcraft': ModelWithVec,
 }
 
 # @torch.no_grad
