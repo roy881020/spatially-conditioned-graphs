@@ -435,6 +435,42 @@ class ModelWithGT(nn.Module):
 
         return results
 
+class ModelWithNone(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.box_pair_predictor = BoxPairPredictor(
+            2048,
+            1024,
+            117
+        )
+    def forward(self, x):
+        box_pair_features = torch.cat([
+            x_per_image['features'] for x_per_image in x
+        ])
+        box_pair_prior = torch.cat([
+            x_per_image['prior'] for x_per_image in x
+        ])
+        box_pair_labels = [x_per_image['labels'] for x_per_image in x]
+
+        scores = self.box_pair_predictor(box_pair_features, box_pair_prior)
+        results = postprocess(
+            scores,
+            [x_per_image['boxes_h'] for x_per_image in x],
+            [x_per_image['boxes_o'] for x_per_image in x],
+            [x_per_image['object_class'] for x_per_image in x],
+            box_pair_labels
+        )
+
+        if len(results) == 0:
+            return None
+
+        if self.training:
+            results.append(compute_interaction_classification_loss(
+                scores, box_pair_labels
+            ))
+
+        return results
+
 class ModelWith2Masks(nn.Module):
     def __init__(self):
         super().__init__()
@@ -614,3 +650,86 @@ class ModelWith1Mask(nn.Module):
             results.append(compute_interaction_classification_loss(
                 scores, box_pair_labels
             ))
+
+class ModelWithVec(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.box_pair_predictor = BoxPairPredictor(
+            2048 + 36,
+            1024,
+            117
+        )
+    def get_handcrafted_encodings(self, boxes_1, boxes_2, shapes, eps=1e-10):
+        features = []
+        for b1, b2, shape in (boxes_1, boxes_2, shapes):
+            w, h = shape
+
+            c1_x = (b1[:, 0] + b1[:, 2]) / 2; c1_y = (b1[:, 1] + b1[:, 3]) / 2
+            c2_x = (b2[:, 0] + b2[:, 2]) / 2; c2_y = (b2[:, 1] + b2[:, 3]) / 2
+
+            b1_w = b1[:, 2] - b1[:, 0]; b1_h = b1[:, 3] - b1[:, 1]
+            b2_w = b2[:, 2] - b2[:, 0]; b2_h = b2[:, 3] - b2[:, 1]
+
+            d_x = torch.abs(c2_x - c1_x) / (b1_w + eps)
+            d_y = torch.abs(c2_y - c1_y) / (b1_h + eps)
+
+            iou = torch.diag(box_ops.box_iou(b1, b2))
+
+            # Construct spatial encoding
+            f = torch.stack([
+                # Relative position of box centre
+                c1_x / w, c1_y / h, c2_x / w, c2_y / h,
+                # Relative box width and height
+                b1_w / w, b1_h / h, b2_w / w, b2_h / h,
+                # Relative box area
+                b1_w * b1_h / (h * w), b2_w * b2_h / (h * w),
+                b2_w * b2_h / (b1_w * b1_h + eps),
+                # Box aspect ratio
+                b1_w / (b1_h + eps), b2_w / (b2_h + eps),
+                # Intersection over union
+                iou,
+                # Relative distance and direction of the object w.r.t. the person
+                (c2_x > c1_x).float() * d_x,
+                (c2_x < c1_x).float() * d_x,
+                (c2_y > c1_y).float() * d_y,
+                (c2_y < c1_y).float() * d_y,
+            ], 1)
+
+            features.append(
+                torch.cat([f, torch.log(f + eps)], 1)
+            )
+        return features
+
+    def forward(self, x):
+        boxes_h = [x_per_image['boxes_h'] for x_per_image in x]
+        boxes_o = [x_per_image['boxes_o'] for x_per_image in x]
+        image_sizes = [x_per_image['size'] for x_per_image in x]
+        box_pair_features = torch.cat([
+            x_per_image['features'] for x_per_image in x
+        ])
+        box_pair_prior = torch.cat([
+            x_per_image['prior'] for x_per_image in x
+        ])
+        box_pair_labels = [x_per_image['labels'] for x_per_image in x]
+        box_pair_spatial = self.get_handcrafted_encodings(
+            boxes_h, boxes_o, image_sizes
+        )
+
+        scores = self.box_pair_predictor(torch.cat([
+            box_pair_features, box_pair_spatial
+        ], 1), box_pair_prior)
+        results = postprocess(
+            scores, boxes_h, boxes_o,
+            [x_per_image['object_class'] for x_per_image in x],
+            box_pair_labels
+        )
+
+        if len(results) == 0:
+            return None
+
+        if self.training:
+            results.append(compute_interaction_classification_loss(
+                scores, box_pair_labels
+            ))
+
+        return results
