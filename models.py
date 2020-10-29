@@ -255,7 +255,8 @@ class BoxPairPredictor(nn.Module):
             nn.Linear(representation_size, num_classes)
         )
     def forward(self, x, prior):
-        return torch.sigmoid(self.predictor(x)) * prior
+        logits = self.predictor(x)
+        return torch.sigmoid(logits) * prior
 
 class InteractGraphNet(models.GenericHOINetwork):
     def __init__(self,
@@ -556,6 +557,8 @@ class ModelWith2Masks(nn.Module):
                 scores, box_pair_labels
             ))
 
+        return results
+
 class ModelWith1Mask(nn.Module):
     def __init__(self):
         super().__init__()
@@ -651,6 +654,8 @@ class ModelWith1Mask(nn.Module):
                 scores, box_pair_labels
             ))
 
+        return results
+
 class ModelWithVec(nn.Module):
     def __init__(self):
         super().__init__()
@@ -661,7 +666,7 @@ class ModelWithVec(nn.Module):
         )
     def get_handcrafted_encodings(self, boxes_1, boxes_2, shapes, eps=1e-10):
         features = []
-        for b1, b2, shape in (boxes_1, boxes_2, shapes):
+        for b1, b2, shape in zip(boxes_1, boxes_2, shapes):
             w, h = shape
 
             c1_x = (b1[:, 0] + b1[:, 2]) / 2; c1_y = (b1[:, 1] + b1[:, 3]) / 2
@@ -698,7 +703,7 @@ class ModelWithVec(nn.Module):
             features.append(
                 torch.cat([f, torch.log(f + eps)], 1)
             )
-        return features
+        return torch.cat(features)
 
     def forward(self, x):
         boxes_h = [x_per_image['boxes_h'] for x_per_image in x]
