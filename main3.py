@@ -99,7 +99,7 @@ def main(args):
         # on_start_epoch
         #################
         net.train()
-        ap_train = DetectionAPMeter(117, algorithm='INT')
+        ap_train = DetectionAPMeter(117, algorithm='11P')
         timestamp = time.time()
         for batch in train_loader:
             ####################
@@ -118,9 +118,6 @@ def main(args):
             loss = output.pop()
             loss.backward()
             optimizer.step()
-
-            if output is None:
-                continue
 
             # Collate results within the batch
             for result in output:
