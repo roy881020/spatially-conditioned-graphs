@@ -12,7 +12,7 @@ from pocket.data import HICODet
 from pocket.utils import NumericalMeter, DetectionAPMeter, HandyTimer
 
 from models import ModelWithGT, ModelWith1Mask, ModelWith2Masks, ModelWithNone, ModelWithVec
-from utils import preprocessed_collate, PreprocessedDataset, test
+from utils import preprocessed_collate, PreprocessedDataset
 
 MODELS = {
     'baseline': ModelWithNone,
@@ -22,27 +22,27 @@ MODELS = {
     'handcraft': ModelWithVec,
 }
 
-# @torch.no_grad
-# def test(net, test_loader):
-#     net.eval()
-#     ap_test = DetectionAPMeter(117, algorithm='INT')
-#     for batch in tqdm(test_loader):
-#         batch_cuda = pocket.ops.relocate_to_cuda(batch)
-#         output = net(batch_cuda)
-#         if output is None:
-#             continue
-#         for result in output:
-#             ap_test.append(
-#                 torch.cat(result["scores"]),
-#                 torch.cat(result["labels"]),
-#                 torch.cat(result["gt_labels"])
-#             )
-#     return ap_test.eval()
+@torch.no_grad
+def test(net, test_loader):
+    net.eval()
+    ap_test = DetectionAPMeter(117, algorithm='11P')
+    for batch in tqdm(test_loader):
+        batch_cuda = pocket.ops.relocate_to_cuda(batch)
+        output = net(batch_cuda)
+        if output is None:
+            continue
+        for result in output:
+            ap_test.append(
+                torch.cat(result["scores"]),
+                torch.cat(result["labels"]),
+                torch.cat(result["gt_labels"])
+            )
+    return ap_test.eval()
 
 def main(args):
 
     torch.cuda.set_device(0)
-#    torch.backends.cudnn.benchmark = True
+    torch.backends.cudnn.benchmark = False
 
     hico_test = HICODet(None, '../Incubator/InteractRCNN/hicodet/instances_test2015.json')
 
@@ -164,7 +164,7 @@ def main(args):
         with timer:
             ap_1 = ap_train.eval()
         with timer:
-            ap_2 = test(net, test_loader, hico_test)
+            ap_2 = test(net, test_loader)
         print("Epoch: {} | training mAP: {:.4f}, eval. time: {:.2f}s |"
             "test mAP: {:.4f}, total time: {:.2f}s".format(
                 epoch+1, ap_1.mean().item(), timer[0],
