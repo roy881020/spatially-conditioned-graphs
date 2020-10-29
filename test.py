@@ -7,36 +7,32 @@ from torch.utils.data import DataLoader
 import pocket
 from pocket.data import HICODet
 
-from models import InteractGraphNet
-from utils import CustomisedDataset, custom_collate, test
+from models import ModelWithGT, ModelWith1Mask, ModelWith2Masks, ModelWithNone, ModelWithVec
+from utils import preprocessed_collate, PreprocessedDataset, test
+
+MODELS = {
+    'baseline': ModelWithNone,
+    'GT': ModelWithGT,
+    '2Masks': ModelWith2Masks,
+    '1Mask': ModelWith1Mask,
+    'handcraft': ModelWithVec,
+}
 
 def main(args):
     torch.cuda.set_device(0)
     torch.backends.cudnn.benchmark = False
 
-    testset = HICODet(
-        root=os.path.join(args.data_root,
-            "hico_20160224_det/images/test2015"),
-        annoFile=os.path.join(args.data_root,
-            "instances_test2015.json"),
-        transform=torchvision.transforms.ToTensor(),
-        target_transform=pocket.ops.ToTensor(input_format='dict')
-    )    
+    hico_test = HICODet(None, '../Incubator/InteractRCNN/hicodet/instances_test2015.json')
+
+    testset = PreprocessedDataset('./preprocessed/test2015')
     test_loader = DataLoader(
-        dataset=CustomisedDataset(testset,
-            os.path.join(args.data_root,
-            "fasterrcnn_resnet50_fpn_detections/test2015"),
-            human_idx=49,
-            box_score_thresh_h=args.human_thresh,
-            box_score_thresh_o=args.object_thresh
-        ), collate_fn=custom_collate, batch_size=args.batch_size,
+        dataset=testset,
+        collate_fn=preprocessed_collate, batch_size=args.batch_size,
         num_workers=args.num_workers, pin_memory=True
     )
 
-    net = InteractGraphNet(
-        testset.object_to_verb, 49,
-        num_iterations=args.num_iter
-    )
+    net = MODELS[args.model_name]()
+
     epoch = 0
     if os.path.exists(args.model_path):
         print("Loading model from ", args.model_path)
@@ -48,16 +44,14 @@ def main(args):
     timer = pocket.utils.HandyTimer(maxlen=1)
     
     with timer:
-        test_ap = test(net, test_loader)
+        test_ap = test(net, test_loader, hico_test)
     print("Epoch: {} | test mAP: {:.4f}, total time: {:.2f}s".format(
         epoch, test_ap.mean(), timer[0]
     ))
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train an interaction head")
-    parser.add_argument('--data-root', required=True, type=str)
-    parser.add_argument('--num-iter', default=1, type=int,
-                        help="Number of iterations to run message passing")
+    parser.add_argument('--model-name', required=True, type=str)
     parser.add_argument('--batch-size', default=2, type=int,
                         help="Batch size for each subprocess")
     parser.add_argument('--human-thresh', default=0.5, type=float)
