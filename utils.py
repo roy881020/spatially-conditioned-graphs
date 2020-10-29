@@ -97,13 +97,14 @@ def test(net, test_loader, testset):
     ap_test = DetectionAPMeter(600, num_gt=testset.anno_interaction, algorithm='11P')
     net.eval()
     for batch in tqdm(test_loader):
-        targets = [b['target'] for b in batch]
         inputs = pocket.ops.relocate_to_cuda(batch)
         with torch.no_grad():
             output = net(inputs)
         if output is None:
             continue
 
+        targets = [b['target'] for b in batch]
+        targets = pocket.ops.relocate_to_cpu(targets)
         for result, target in zip(output, targets):
             result = pocket.ops.relocate_to_cpu(result)
             # Reformat the predicted classes and scores
