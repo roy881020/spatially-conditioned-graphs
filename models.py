@@ -446,6 +446,40 @@ class ModelWithGT(nn.Module):
 
         return results
 
+class ModelWithOnlyGT(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.box_pair_predictor = BoxPairPredictor(
+            117,
+            1024,
+            117
+        )
+    def forward(self, x):
+        box_pair_prior = [x_per_image['prior'] for x_per_image in x]
+        box_pair_labels = [x_per_image['labels'] for x_per_image in x]
+
+        logits = self.box_pair_predictor(torch.cat(
+            box_pair_labels
+        ))
+        scores = torch.sigmoid(logits)
+        results = postprocess(
+            scores, box_pair_prior,
+            [x_per_image['boxes_h'] for x_per_image in x],
+            [x_per_image['boxes_o'] for x_per_image in x],
+            [x_per_image['object_class'] for x_per_image in x],
+            box_pair_labels
+        )
+
+        if len(results) == 0:
+            return None
+
+        if self.training:
+            results.append(compute_interaction_classification_loss(
+                scores, box_pair_prior, box_pair_labels
+            ))
+
+        return results
+
 class ModelWithNone(nn.Module):
     def __init__(self):
         super().__init__()
@@ -646,8 +680,8 @@ class ModelWith1Mask(nn.Module):
         for idx, f in zip(indices, spatial_features.split(num_boxes)):
             all_spatial = f[idx]
             n = int(len(all_spatial) / 2)
-            h_spatial.append(f[:n])
-            o_spatial.append(f[n:])
+            h_spatial.append(all_spatial[:n])
+            o_spatial.append(all_spatial[n:])
         h_spatial = torch.cat(h_spatial)
         o_spatial = torch.cat(o_spatial)
 
