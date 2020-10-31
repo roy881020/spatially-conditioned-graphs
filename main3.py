@@ -32,12 +32,11 @@ def test(net, test_loader):
         output = net(batch_cuda)
         if output is None:
             continue
-        for result in output:
-            ap_test.append(
-                torch.cat(result["scores"]),
-                torch.cat(result["labels"]),
-                torch.cat(result["gt_labels"])
-            )
+        ap_test.append(
+            torch.cat(output[0]),
+            torch.cat(output[1]),
+            torch.cat(output[2])
+        )
     return ap_test.eval()
 
 def main(args):
@@ -120,13 +119,11 @@ def main(args):
             loss.backward()
             optimizer.step()
 
-            # Collate results within the batch
-            for result in output:
-                ap_train.append(
-                    torch.cat(result["scores"]),
-                    torch.cat(result["labels"]),
-                    torch.cat(result["gt_labels"])
-                )
+            ap_train.append(
+                torch.cat(output[0]),
+                torch.cat(output[1]),
+                torch.cat(output[2])
+            )
             ####################
             # on_end_iteration
             ####################
