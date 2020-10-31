@@ -28,6 +28,7 @@ def compute_net_bias(results):
     bias = torch.zeros(117, 2)
     normalised_bias = torch.zeros(117, 2)
     for r in results:
+        _ = r.pop('index')
         class_idx = torch.tensor(list(r.keys()))
         stats = torch.tensor(list(r.values()))
         bias[class_idx] += stats
