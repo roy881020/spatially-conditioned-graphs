@@ -11,18 +11,19 @@ import pocket
 from pocket.data import HICODet
 from pocket.utils import NumericalMeter, DetectionAPMeter, HandyTimer
 
-from models import ModelWithGT, ModelWith1Mask, ModelWith2Masks, ModelWithNone, ModelWithVec
+from models import ModelWithGT, ModelWith1Mask, ModelWith2Masks, ModelWithNone, ModelWithVec, ModelWithOnlyGT
 from utils import preprocessed_collate, PreprocessedDataset
 
 MODELS = {
     'baseline': ModelWithNone,
-    'GT': ModelWithGT,
-    '2Masks': ModelWith2Masks,
-    '1Mask': ModelWith1Mask,
+    'gt': ModelWithGT,
+    'gt_': ModelWithOnlyGT,
+    '2mask': ModelWith2Masks,
+    '1mask': ModelWith1Mask,
     'handcraft': ModelWithVec,
 }
 
-@torch.no_grad
+@torch.no_grad()
 def test(net, test_loader):
     net.eval()
     ap_test = DetectionAPMeter(117, algorithm='11P')
@@ -175,15 +176,11 @@ if __name__ == '__main__':
     
     parser = argparse.ArgumentParser(description="Train an interaction head")
     parser.add_argument('--model-name', required=True, type=str)
-    parser.add_argument('--num-iter', default=1, type=int,
-                        help="Number of iterations to run message passing")
     parser.add_argument('--num-epochs', default=20, type=int)
     parser.add_argument('--random-seed', default=1, type=int)
     parser.add_argument('--learning-rate', default=0.001, type=float)
     parser.add_argument('--momentum', default=0.9, type=float)
     parser.add_argument('--weight-decay', default=1e-4, type=float)
-    parser.add_argument('--human-thresh', default=0.5, type=float)
-    parser.add_argument('--object-thresh', default=0.5, type=float)
     parser.add_argument('--batch-size', default=2, type=int,
                         help="Batch size for each subprocess")
     parser.add_argument('--lr-decay', default=0.1, type=float,
