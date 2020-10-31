@@ -333,72 +333,6 @@ class InteractGraphNet(models.GenericHOINetwork):
         """Override method to only load state dict of the interaction head"""
         self.interaction_head.load_state_dict(x)
 
-def compute_interaction_classification_loss(scores, prior, box_pair_labels):
-    """
-    Arguments:
-        scores(Tensor[N, K])
-        prior(List[Tensor])
-        box_pair_labels(List[Tensor])
-    """
-    total_loss = 0
-    num_boxes = [len(labels) for labels in box_pair_labels]
-    for scores_in_image, prior_in_image, labels_in_image in zip(
-        scores.split(num_boxes), prior, box_pair_labels
-    ):
-        # Remove invalid classes for a given object type
-        i, j = prior_in_image.nonzero().unbind(1)
-        loss = nn.functional.binary_cross_entropy(
-            scores_in_image[i, j] * prior_in_image[i, j],
-            labels_in_image[i, j],
-            reduction='mean'
-        )
-
-        total_loss += loss
-
-    return total_loss / len(num_boxes)
-
-def postprocess(scores, prior, boxes_h, boxes_o, object_class, labels):
-    """
-    Arguments:
-        scores(Tensor[N, K])
-        prior(List[Tensor])
-        boxes_h(List[Tensor])
-        boxes_o(List[Tensor])
-        object_class(List[Tensor])
-        labels(List[Tensor])
-    """
-    num_boxes = [len(boxes_per_image) for boxes_per_image in boxes_h]
-    scores = scores.split(num_boxes)
-    if len(labels) == 0:
-        labels = [[] for _ in range(len(num_boxes))]
-
-    results = []
-    for s, p, b_h, b_o, o, l in zip(scores, prior, boxes_h, boxes_o, object_class, labels):
-        # Remove irrelevant classes
-        keep_cls = [row.nonzero().squeeze(1) for row in p]
-        # Remove box pairs without predictions
-        keep_idx = {
-            k: v for k, v in enumerate(keep_cls) if len(v)
-        }
-
-        box_keep = list(keep_idx.keys())
-        if len(box_keep) == 0:
-            continue
-        result_dict = dict(
-            boxes_h=b_h[box_keep],
-            boxes_o=b_o[box_keep],
-            object=o[box_keep],
-            labels=list(keep_idx.values()),
-            scores=[s[k, v] * p[k, v] for k, v in keep_idx.items()]
-        )
-        # If binary labels are provided
-        if len(l):
-            result_dict["gt_labels"] = [l[k, v] for k, v in keep_idx.items()]
-
-        results.append(result_dict)
-
-    return results
-
 class ModelWithGT(nn.Module):
     def __init__(self):
         super().__init__()
@@ -434,7 +368,7 @@ class ModelWithGT(nn.Module):
         logits = self.box_pair_predictor(torch.cat([
             box_pair_features, box_pair_labels
         ], 1))
-        i, j = torch.nonzero(box_pair_prior)
+        i, j = torch.nonzero(box_pair_prior).unbind(1)
 
         results = [
             logits[i, j],
@@ -449,51 +383,6 @@ class ModelWithGT(nn.Module):
 
         return results
 
-class ModelWithGT1(nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.box_pair_predictor_1 = BoxPairPredictor(
-            2048,
-            1024,
-            117
-        )
-        self.box_pair_predictor_2 = BoxPairPredictor(
-            117,
-            1024,
-            117
-        )
-
-    def forward(self, x):
-        box_pair_features = torch.cat([
-            x_per_image['features'] for x_per_image in x
-        ])
-        box_pair_prior = [x_per_image['prior'] for x_per_image in x]
-        box_pair_labels = [x_per_image['labels'] for x_per_image in x]
-
-        logits_1 = self.box_pair_predictor_1(box_pair_features)
-        logits_2 = self.box_pair_predictor_2(torch.cat(
-            box_pair_labels
-        ))
-
-        scores = torch.sigmoid(logits_1) * torch.sigmoid(logits_2)
-        results = postprocess(
-            scores, box_pair_prior,
-            [x_per_image['boxes_h'] for x_per_image in x],
-            [x_per_image['boxes_o'] for x_per_image in x],
-            [x_per_image['object_class'] for x_per_image in x],
-            box_pair_labels
-        )
-
-        if len(results) == 0:
-            return None
-
-        if self.training:
-            results.append(compute_interaction_classification_loss(
-                scores, box_pair_prior, box_pair_labels
-            ))
-
-        return results
-
 class ModelWithOnlyGT(nn.Module):
     def __init__(self):
         super().__init__()
@@ -503,62 +392,31 @@ class ModelWithOnlyGT(nn.Module):
             117
         )
     def forward(self, x):
-        box_pair_prior = [x_per_image['prior'] for x_per_image in x]
-        box_pair_labels = [x_per_image['labels'] for x_per_image in x]
+        box_pair_prior = torch.cat([
+            x_per_image['prior'] for x_per_image in x
+        ])
+        box_pair_labels = torch.cat([
+            x_per_image['labels'] for x_per_image in x
+        ])
 
-        logits = self.box_pair_predictor(torch.cat(
-            box_pair_labels
-        ))
-        scores = torch.sigmoid(logits)
-        results = postprocess(
-            scores, box_pair_prior,
-            [x_per_image['boxes_h'] for x_per_image in x],
-            [x_per_image['boxes_o'] for x_per_image in x],
-            [x_per_image['object_class'] for x_per_image in x],
-            box_pair_labels
-        )
-
-        if len(results) == 0:
+        if len(box_pair_prior) == 0:
             return None
 
+        logits = self.box_pair_predictor(box_pair_labels)
+        i, j = torch.nonzero(box_pair_prior).unbind(1)
+
+        results = [
+            logits[i, j],
+            j,
+            box_pair_labels[i, j],
+        ]
         if self.training:
-            results.append(compute_interaction_classification_loss(
-                scores, box_pair_prior, box_pair_labels
-            ))
+            loss = nn.functional.binary_cross_entropy_with_logits(
+                results[0], results[2]
+            )
+            results.append(loss)
 
         return results
-
-class ModelWithOnlyGT1(nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.box_pair_predictor = nn.Linear(117, 117)
-
-    def forward(self, x):
-        box_pair_prior = [x_per_image['prior'] for x_per_image in x]
-        box_pair_labels = [x_per_image['labels'] for x_per_image in x]
-
-        logits = self.box_pair_predictor(torch.cat(
-            box_pair_labels
-        ))
-        scores = torch.sigmoid(logits)
-        results = postprocess(
-            scores, box_pair_prior,
-            [x_per_image['boxes_h'] for x_per_image in x],
-            [x_per_image['boxes_o'] for x_per_image in x],
-            [x_per_image['object_class'] for x_per_image in x],
-            box_pair_labels
-        )
-
-        if len(results) == 0:
-            return None
-
-        if self.training:
-            results.append(compute_interaction_classification_loss(
-                scores, box_pair_prior, box_pair_labels
-            ))
-
-        return results
-
 
 class ModelWithNone(nn.Module):
     def __init__(self):
@@ -572,27 +430,29 @@ class ModelWithNone(nn.Module):
         box_pair_features = torch.cat([
             x_per_image['features'] for x_per_image in x
         ])
-        box_pair_prior = [x_per_image['prior'] for x_per_image in x]
-        box_pair_labels = [x_per_image['labels'] for x_per_image in x]
+        box_pair_prior = torch.cat([
+            x_per_image['prior'] for x_per_image in x
+        ])
+        box_pair_labels = torch.cat([
+            x_per_image['labels'] for x_per_image in x
+        ])
 
-        logits = self.box_pair_predictor(box_pair_features)
-        scores = torch.sigmoid(logits)
-
-        results = postprocess(
-            scores, box_pair_prior,
-            [x_per_image['boxes_h'] for x_per_image in x],
-            [x_per_image['boxes_o'] for x_per_image in x],
-            [x_per_image['object_class'] for x_per_image in x],
-            box_pair_labels
-        )
-
-        if len(results) == 0:
+        if len(box_pair_features) == 0:
             return None
 
+        logits = self.box_pair_predictor(box_pair_features)
+        i, j = torch.nonzero(box_pair_prior).unbind(1)
+
+        results = [
+            logits[i, j],
+            j,
+            box_pair_labels[i, j],
+        ]
         if self.training:
-            results.append(compute_interaction_classification_loss(
-                scores, box_pair_prior, box_pair_labels
-            ))
+            loss = nn.functional.binary_cross_entropy_with_logits(
+                results[0], results[2]
+            )
+            results.append(loss)
 
         return results
 
@@ -659,26 +519,28 @@ class ModelWith2Masks(nn.Module):
         box_pair_features = torch.cat([
             x_per_image['features'] for x_per_image in x
         ])
-        box_pair_prior = [x_per_image['prior'] for x_per_image in x]
-        box_pair_labels = [x_per_image['labels'] for x_per_image in x]
+        box_pair_prior = torch.cat([
+            x_per_image['prior'] for x_per_image in x
+        ])
+        box_pair_labels = torch.cat([
+            x_per_image['labels'] for x_per_image in x
+        ])
 
         logits = self.box_pair_predictor(torch.cat([
             box_pair_features, box_pair_spatial
         ], 1))
-        scores = torch.sigmoid(logits)
-        results = postprocess(
-            scores, box_pair_prior, boxes_h, boxes_o,
-            [x_per_image['object_class'] for x_per_image in x],
-            box_pair_labels
-        )
+        i, j = torch.nonzero(box_pair_prior).unbind(1)
 
-        if len(results) == 0:
-            return None
-
+        results = [
+            logits[i, j],
+            j,
+            box_pair_labels[i, j],
+        ]
         if self.training:
-            results.append(compute_interaction_classification_loss(
-                scores, box_pair_prior, box_pair_labels
-            ))
+            loss = nn.functional.binary_cross_entropy_with_logits(
+                results[0], results[2]
+            )
+            results.append(loss)
 
         return results
 
@@ -768,26 +630,28 @@ class ModelWith1Mask(nn.Module):
         box_pair_features = torch.cat([
             x_per_image['features'] for x_per_image in x
         ])
-        box_pair_prior = [x_per_image['prior'] for x_per_image in x]
-        box_pair_labels = [x_per_image['labels'] for x_per_image in x]
+        box_pair_prior = torch.cat([
+            x_per_image['prior'] for x_per_image in x
+        ])
+        box_pair_labels = torch.cat([
+            x_per_image['labels'] for x_per_image in x
+        ])
 
         logits = self.box_pair_predictor(torch.cat([
             box_pair_features, h_spatial, o_spatial
         ], 1))
-        scores = torch.sigmoid(logits)
-        results = postprocess(
-            scores, box_pair_prior, boxes_h, boxes_o,
-            [x_per_image['object_class'] for x_per_image in x],
-            box_pair_labels
-        )
+        i, j = torch.nonzero(box_pair_prior).unbind(1)
 
-        if len(results) == 0:
-            return None
-
+        results = [
+            logits[i, j],
+            j,
+            box_pair_labels[i, j],
+        ]
         if self.training:
-            results.append(compute_interaction_classification_loss(
-                scores, box_pair_prior, box_pair_labels
-            ))
+            loss = nn.functional.binary_cross_entropy_with_logits(
+                results[0], results[2]
+            )
+            results.append(loss)
 
         return results
 
@@ -844,31 +708,33 @@ class ModelWithVec(nn.Module):
         boxes_h = [x_per_image['boxes_h'] for x_per_image in x]
         boxes_o = [x_per_image['boxes_o'] for x_per_image in x]
         image_sizes = [x_per_image['size'] for x_per_image in x]
-        box_pair_features = torch.cat([
-            x_per_image['features'] for x_per_image in x
-        ])
-        box_pair_prior = [x_per_image['prior'] for x_per_image in x]
-        box_pair_labels = [x_per_image['labels'] for x_per_image in x]
         box_pair_spatial = self.get_handcrafted_encodings(
             boxes_h, boxes_o, image_sizes
         )
+        box_pair_features = torch.cat([
+            x_per_image['features'] for x_per_image in x
+        ])
+        box_pair_prior = torch.cat([
+            x_per_image['prior'] for x_per_image in x
+        ])
+        box_pair_labels = torch.cat([
+            x_per_image['labels'] for x_per_image in x
+        ])
 
         logits = self.box_pair_predictor(torch.cat([
             box_pair_features, box_pair_spatial
         ], 1))
-        scores = torch.sigmoid(logits)
-        results = postprocess(
-            scores, box_pair_prior, boxes_h, boxes_o,
-            [x_per_image['object_class'] for x_per_image in x],
-            box_pair_labels
-        )
+        i, j = torch.nonzero(box_pair_prior).unbind(1)
 
-        if len(results) == 0:
-            return None
-
+        results = [
+            logits[i, j],
+            j,
+            box_pair_labels[i, j],
+        ]
         if self.training:
-            results.append(compute_interaction_classification_loss(
-                scores, box_pair_prior, box_pair_labels
-            ))
+            loss = nn.functional.binary_cross_entropy_with_logits(
+                results[0], results[2]
+            )
+            results.append(loss)
 
         return results
