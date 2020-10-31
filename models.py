@@ -446,6 +446,51 @@ class ModelWithGT(nn.Module):
 
         return results
 
+class ModelWithGT1(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.box_pair_predictor_1 = BoxPairPredictor(
+            2048,
+            1024,
+            117
+        )
+        self.box_pair_predictor_2 = BoxPairPredictor(
+            117,
+            1024,
+            117
+        )
+
+    def forward(self, x):
+        box_pair_features = torch.cat([
+            x_per_image['features'] for x_per_image in x
+        ])
+        box_pair_prior = [x_per_image['prior'] for x_per_image in x]
+        box_pair_labels = [x_per_image['labels'] for x_per_image in x]
+
+        logits_1 = self.box_pair_predictor_1(box_pair_features)
+        logits_2 = self.box_pair_predictor_2(torch.cat(
+            box_pair_labels
+        ))
+
+        scores = torch.sigmoid(logits_1) * torch.sigmoid(logits_2)
+        results = postprocess(
+            scores, box_pair_prior,
+            [x_per_image['boxes_h'] for x_per_image in x],
+            [x_per_image['boxes_o'] for x_per_image in x],
+            [x_per_image['object_class'] for x_per_image in x],
+            box_pair_labels
+        )
+
+        if len(results) == 0:
+            return None
+
+        if self.training:
+            results.append(compute_interaction_classification_loss(
+                scores, box_pair_prior, box_pair_labels
+            ))
+
+        return results
+
 class ModelWithOnlyGT(nn.Module):
     def __init__(self):
         super().__init__()
@@ -479,6 +524,38 @@ class ModelWithOnlyGT(nn.Module):
             ))
 
         return results
+
+class ModelWithOnlyGT1(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.box_pair_predictor = nn.Linear(117, 117)
+
+    def forward(self, x):
+        box_pair_prior = [x_per_image['prior'] for x_per_image in x]
+        box_pair_labels = [x_per_image['labels'] for x_per_image in x]
+
+        logits = self.box_pair_predictor(torch.cat(
+            box_pair_labels
+        ))
+        scores = torch.sigmoid(logits)
+        results = postprocess(
+            scores, box_pair_prior,
+            [x_per_image['boxes_h'] for x_per_image in x],
+            [x_per_image['boxes_o'] for x_per_image in x],
+            [x_per_image['object_class'] for x_per_image in x],
+            box_pair_labels
+        )
+
+        if len(results) == 0:
+            return None
+
+        if self.training:
+            results.append(compute_interaction_classification_loss(
+                scores, box_pair_prior, box_pair_labels
+            ))
+
+        return results
+
 
 class ModelWithNone(nn.Module):
     def __init__(self):
