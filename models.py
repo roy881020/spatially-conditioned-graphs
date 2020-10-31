@@ -421,28 +421,31 @@ class ModelWithGT(nn.Module):
         box_pair_features = torch.cat([
             x_per_image['features'] for x_per_image in x
         ])
-        box_pair_prior = [x_per_image['prior'] for x_per_image in x]
-        box_pair_labels = [x_per_image['labels'] for x_per_image in x]
+        box_pair_prior = torch.cat([
+            x_per_image['prior'] for x_per_image in x
+        ])
+        box_pair_labels = torch.cat([
+            x_per_image['labels'] for x_per_image in x
+        ])
 
-        logits = self.box_pair_predictor(torch.cat([
-            box_pair_features, torch.cat(box_pair_labels)
-        ], 1))
-        scores = torch.sigmoid(logits)
-        results = postprocess(
-            scores, box_pair_prior,
-            [x_per_image['boxes_h'] for x_per_image in x],
-            [x_per_image['boxes_o'] for x_per_image in x],
-            [x_per_image['object_class'] for x_per_image in x],
-            box_pair_labels
-        )
-
-        if len(results) == 0:
+        if len(box_pair_features) == 0:
             return None
 
+        logits = self.box_pair_predictor(torch.cat([
+            box_pair_features, box_pair_labels
+        ], 1))
+        i, j = torch.nonzero(box_pair_prior)
+
+        results = [
+            logits[i, j],
+            j,
+            box_pair_labels[i, j],
+        ]
         if self.training:
-            results.append(compute_interaction_classification_loss(
-                scores, box_pair_prior, box_pair_labels
-            ))
+            loss = nn.functional.binary_cross_entropy_with_logits(
+                results[0], results[2]
+            )
+            results.append(loss)
 
         return results
 
