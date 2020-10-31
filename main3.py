@@ -33,9 +33,9 @@ def test(net, test_loader):
         if output is None:
             continue
         ap_test.append(
-            torch.cat(output[0]),
-            torch.cat(output[1]),
-            torch.cat(output[2])
+            output[0],
+            output[1],
+            output[2]
         )
     return ap_test.eval()
 
@@ -120,9 +120,9 @@ def main(args):
             optimizer.step()
 
             ap_train.append(
-                torch.cat(output[0]),
-                torch.cat(output[1]),
-                torch.cat(output[2])
+                output[0],
+                output[1],
+                output[2]
             )
             ####################
             # on_end_iteration
