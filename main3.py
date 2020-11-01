@@ -19,6 +19,8 @@ MODELS = {
     'b_2mask': ModelWith2Masks,
     'b_1mask': ModelWith1Mask,
     'b_vec': ModelWithVec,
+    'b_vec_atten': ModelWithVecAtten,
+    'b_vec_sum': ModelWithVecSum,
     '2mask': SpatialPairwiseMask,
     '1mask': SpatialIndividualMask,
     'vec': SpatialHandcraft,
