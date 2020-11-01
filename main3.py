@@ -11,16 +11,19 @@ import pocket
 from pocket.data import HICODet
 from pocket.utils import NumericalMeter, DetectionAPMeter, HandyTimer
 
-from models import ModelWithGT, ModelWith1Mask, ModelWith2Masks, ModelWithNone, ModelWithVec, ModelWithOnlyGT
+from models import *
 from utils import preprocessed_collate, PreprocessedDataset
 
 MODELS = {
     'baseline': ModelWithNone,
+    'b_2mask': ModelWith2Masks,
+    'b_1mask': ModelWith1Mask,
+    'b_vec': ModelWithVec,
+    '2mask': SpatialPairwiseMask,
+    '1mask': SpatialIndividualMask,
+    'vec': SpatialHandcraft,
     'gt': ModelWithGT,
     'gt_': ModelWithOnlyGT,
-    '2mask': ModelWith2Masks,
-    '1mask': ModelWith1Mask,
-    'handcraft': ModelWithVec,
 }
 
 @torch.no_grad()
@@ -163,7 +166,7 @@ def main(args):
             ap_1 = ap_train.eval()
         with timer:
             ap_2 = test(net, test_loader)
-        print("Epoch: {} | training mAP: {:.4f}, eval. time: {:.2f}s |"
+        print("Epoch: {} | training mAP: {:.4f}, eval. time: {:.2f}s | "
             "test mAP: {:.4f}, total time: {:.2f}s".format(
                 epoch+1, ap_1.mean().item(), timer[0],
                 ap_2.mean().item(), timer[1]
