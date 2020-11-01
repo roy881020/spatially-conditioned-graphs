@@ -11,7 +11,7 @@ from torchvision.ops.boxes import box_iou
 
 import pocket
 from pocket.data import HICODet
-from pocket.utils import NumericalMeter, DetectionAPMeter, HandyTimer
+from pocket.utils import NumericalMeter, DetectionAPMeter, HandyTimer, AveragePrecisionMeter
 
 from utils import preprocessed_collate, PreprocessedDataset
 
@@ -27,31 +27,34 @@ class LabelDataset(Dataset):
         return self.prior[idx], self.labels[idx]
 
 class Model(nn.Module):
-    def __init__(self, input_size=117, representation_size=1024, num_classes=117):
+    def __init__(self, input_size=117, representation_size=1024, num_classes=117, bias=True):
         super().__init__()
         self.head = nn.Sequential(
-            nn.Linear(input_size, representation_size),
+            nn.Linear(input_size, representation_size, bias=bias),
             nn.ReLU(),
-            nn.Linear(representation_size, representation_size),
+            nn.Linear(representation_size, representation_size, bias=bias),
             nn.ReLU(),
-            nn.Linear(representation_size, num_classes)
+            nn.Linear(representation_size, num_classes, bias=bias)
         )
+#        self.head = nn.Linear(input_size, num_classes, bias=bias)
     def forward(self, prior, labels):
         output = self.head(labels)
         i, j = torch.nonzero(prior).unbind(1)
-        return output[i, j], labels[i, j], j
+        return output[i, j], j, labels[i, j]
 
 @torch.no_grad()
 def test(net, test_loader):
     net.eval()
+#    ap_test = AveragePrecisionMeter(algorithm='11P')
     ap_test = DetectionAPMeter(117, algorithm='11P')
     for batch in tqdm(test_loader):
         batch_cuda = pocket.ops.relocate_to_cuda(batch)
-        logits, labels, pred = net(*batch_cuda)
+        output, pred, labels = net(*batch_cuda)
         # Collate results within the batch
         ap_test.append(
-            torch.sigmoid(logits),
-            pred, labels
+            output,
+            pred,
+            labels
         )
     return ap_test.eval()
 
@@ -61,7 +64,7 @@ def main(args):
     torch.backends.cudnn.benchmark = False
 
     trainset = LabelDataset('./preprocessed/labels_train2015.pkl')
-    testset = PreprocessedDataset('./preprocessed/labels_test2015.pkl')
+    testset = LabelDataset('./preprocessed/labels_test2015.pkl')
 
     train_loader = DataLoader(
         dataset=trainset,
@@ -79,7 +82,7 @@ def main(args):
     # Fix random seed for model synchronisation
     torch.manual_seed(args.random_seed)
 
-    net = Model()
+    net = Model(bias=args.bias)
 
     if os.path.exists(args.model_path):
         print("Loading model from ", args.model_path)
@@ -107,12 +110,14 @@ def main(args):
     timer = HandyTimer(2)
 
     iterations = 0
+    all_ap = []
 
     for epoch in range(args.num_epochs):
         #################
         # on_start_epoch
         #################
         net.train()
+#        ap_train = AveragePrecisionMeter(algorithm='11P')
         ap_train = DetectionAPMeter(117, algorithm='11P')
         timestamp = time.time()
         for batch in train_loader:
@@ -126,15 +131,16 @@ def main(args):
             # on_each_iteration
             ####################
             optimizer.zero_grad()
-            logits, labels, pred = net(*batch_cuda)
-            loss = nn.functional.binary_cross_entropy_with_logits(logits, labels)
+            output, pred, labels = net(*batch_cuda)
+            loss = nn.functional.binary_cross_entropy_with_logits(output, labels)
             loss.backward()
             optimizer.step()
 
             # Collate results within the batch
             ap_train.append(
-                torch.sigmoid(logits),
-                pred, labels
+                output,
+                pred,
+                labels
             )
             ####################
             # on_end_iteration
@@ -175,16 +181,19 @@ def main(args):
             ap_1 = ap_train.eval()
         with timer:
             ap_2 = test(net, test_loader)
+        all_ap.append(dict(train=ap_1, test=ap_2))
         print("Epoch: {} | training mAP: {:.4f}, eval. time: {:.2f}s |"
             "test mAP: {:.4f}, total time: {:.2f}s".format(
                 epoch+1, ap_1.mean().item(), timer[0],
                 ap_2.mean().item(), timer[1]
         ))
+    torch.save(all_ap, 'ap.pt')
 
 if __name__ == '__main__':
     
     parser = argparse.ArgumentParser(description="Train an interaction head")
     parser.add_argument('--num-epochs', default=20, type=int)
+    parser.add_argument('--bias', action='store_true')
     parser.add_argument('--random-seed', default=1, type=int)
     parser.add_argument('--learning-rate', default=0.001, type=float)
     parser.add_argument('--momentum', default=0.9, type=float)
