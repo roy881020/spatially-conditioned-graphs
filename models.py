@@ -371,12 +371,11 @@ class ModelWithGT(nn.Module):
         i, j = torch.nonzero(box_pair_prior).unbind(1)
 
         results = [
-            logits[i, j],
-            j,
-            box_pair_labels[i, j],
+            torch.sigmoid(logits[i, j]) * box_pair_prior[i, j],
+            j, box_pair_labels[i, j],
         ]
         if self.training:
-            loss = nn.functional.binary_cross_entropy_with_logits(
+            loss = nn.functional.binary_cross_entropy(
                 results[0], results[2]
             )
             results.append(loss)
@@ -406,12 +405,11 @@ class ModelWithOnlyGT(nn.Module):
         i, j = torch.nonzero(box_pair_prior).unbind(1)
 
         results = [
-            logits[i, j],
-            j,
-            box_pair_labels[i, j],
+            torch.sigmoid(logits[i, j]) * box_pair_prior[i, j],
+            j, box_pair_labels[i, j],
         ]
         if self.training:
-            loss = nn.functional.binary_cross_entropy_with_logits(
+            loss = nn.functional.binary_cross_entropy(
                 results[0], results[2]
             )
             results.append(loss)
@@ -444,12 +442,11 @@ class ModelWithNone(nn.Module):
         i, j = torch.nonzero(box_pair_prior).unbind(1)
 
         results = [
-            logits[i, j],
-            j,
-            box_pair_labels[i, j],
+            torch.sigmoid(logits[i, j]) * box_pair_prior[i, j],
+            j, box_pair_labels[i, j],
         ]
         if self.training:
-            loss = nn.functional.binary_cross_entropy_with_logits(
+            loss = nn.functional.binary_cross_entropy(
                 results[0], results[2]
             )
             results.append(loss)
@@ -532,12 +529,11 @@ class ModelWith2Masks(nn.Module):
         i, j = torch.nonzero(box_pair_prior).unbind(1)
 
         results = [
-            logits[i, j],
-            j,
-            box_pair_labels[i, j],
+            torch.sigmoid(logits[i, j]) * box_pair_prior[i, j],
+            j, box_pair_labels[i, j],
         ]
         if self.training:
-            loss = nn.functional.binary_cross_entropy_with_logits(
+            loss = nn.functional.binary_cross_entropy(
                 results[0], results[2]
             )
             results.append(loss)
@@ -556,24 +552,17 @@ class ModelWith1Mask(nn.Module):
         self.box_spatial_head = nn.Sequential(
             # First block
             nn.Conv2d(1, 32, 5, stride=2),
-            nn.BatchNorm2d(32),
             nn.ReLU(),
             nn.Conv2d(32, 32, 3),
-            nn.BatchNorm2d(32),
             nn.ReLU(),
             nn.Conv2d(32, 32, 3),
-            nn.BatchNorm2d(32),
             nn.ReLU(),
             # Second block
             nn.Conv2d(32, 64, 3, stride=2),
-            nn.BatchNorm2d(64),
             nn.ReLU(),
             nn.Conv2d(64, 64, 3),
-            nn.BatchNorm2d(64),
             nn.ReLU(),
             nn.Conv2d(64, 64, 3),
-            nn.BatchNorm2d(64),
-            nn.ReLU(),
             nn.MaxPool2d(2),
             Flatten(start_dim=1)    # Nx1024
         )
@@ -643,12 +632,11 @@ class ModelWith1Mask(nn.Module):
         i, j = torch.nonzero(box_pair_prior).unbind(1)
 
         results = [
-            logits[i, j],
-            j,
-            box_pair_labels[i, j],
+            torch.sigmoid(logits[i, j]) * box_pair_prior[i, j],
+            j, box_pair_labels[i, j],
         ]
         if self.training:
-            loss = nn.functional.binary_cross_entropy_with_logits(
+            loss = nn.functional.binary_cross_entropy(
                 results[0], results[2]
             )
             results.append(loss)
@@ -663,7 +651,9 @@ class ModelWithVec(nn.Module):
             1024,
             117
         )
-    def get_handcrafted_encodings(self, boxes_1, boxes_2, shapes, eps=1e-10):
+
+    @staticmethod
+    def get_handcrafted_encodings(boxes_1, boxes_2, shapes, eps=1e-10):
         features = []
         for b1, b2, shape in zip(boxes_1, boxes_2, shapes):
             w, h = shape
@@ -727,12 +717,162 @@ class ModelWithVec(nn.Module):
         i, j = torch.nonzero(box_pair_prior).unbind(1)
 
         results = [
-            logits[i, j],
-            j,
-            box_pair_labels[i, j],
+            torch.sigmoid(logits[i, j]) * box_pair_prior[i, j],
+            j, box_pair_labels[i, j],
         ]
         if self.training:
-            loss = nn.functional.binary_cross_entropy_with_logits(
+            loss = nn.functional.binary_cross_entropy(
+                results[0], results[2]
+            )
+            results.append(loss)
+
+        return results
+
+class SpatialPairwiseMask(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.spatial_head = nn.Sequential(
+            nn.Conv2d(2, 64, 5),
+            nn.MaxPool2d(2),
+            nn.Conv2d(64, 32, 5),
+            nn.MaxPool2d(2),
+            nn.AdaptiveAvgPool2d(1),
+            Flatten(start_dim=1),
+            nn.Linear(32, 512),
+            nn.ReLU(),
+            nn.Linear(512, 117)
+        )
+    def forward(self, x):
+        boxes_h = [x_per_image['boxes_h'] for x_per_image in x]
+        boxes_o = [x_per_image['boxes_o'] for x_per_image in x]
+        masks = ModelWith2Masks.get_spatial_encoding(
+            torch.cat(boxes_h), torch.cat(boxes_o)
+        )
+        box_pair_spatial = self.spatial_head(masks)
+
+        box_pair_prior = torch.cat([
+            x_per_image['prior'] for x_per_image in x
+        ])
+        box_pair_labels = torch.cat([
+            x_per_image['labels'] for x_per_image in x
+        ])
+
+        logits = self.box_pair_predictor(box_pair_spatial)
+        i, j = torch.nonzero(box_pair_prior).unbind(1)
+
+        results = [
+            torch.sigmoid(logits[i, j]) * box_pair_prior[i, j],
+            j, box_pair_labels[i, j],
+        ]
+        if self.training:
+            loss = nn.functional.binary_cross_entropy(
+                results[0], results[2]
+            )
+            results.append(loss)
+
+        return results
+
+class SpatialIndividualMask(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.box_spatial_head = nn.Sequential(
+            nn.Conv2d(1, 32, 5, stride=2),
+            nn.ReLU(),
+            nn.Conv2d(32, 32, 3),
+            nn.ReLU(),
+            nn.Conv2d(32, 32, 3),
+            nn.ReLU(),
+            nn.Conv2d(32, 64, 3, stride=2),
+            nn.ReLU(),
+            nn.Conv2d(64, 64, 3),
+            nn.ReLU(),
+            nn.Conv2d(64, 64, 3),
+            nn.MaxPool2d(2),
+            Flatten(start_dim=1)    # Nx1024
+        )
+
+    def forward(self, x):
+        boxes_h = [x_per_image['boxes_h'] for x_per_image in x]
+        boxes_o = [x_per_image['boxes_o'] for x_per_image in x]
+        image_sizes = [x_per_image['size'] for x_per_image in x]
+
+        boxes = []; indices = []
+        for b_h, b_o in zip(boxes_h, boxes_o):
+            b, idx = torch.cat([b_h, b_o]).unique(return_inverse=True, dim=0)
+            boxes.append(b)
+            indices.append(idx)
+        masks = ModelWith1Mask.get_spatial_encoding(boxes, image_sizes)
+        spatial_features = self.box_spatial_head(masks[:, None, :, :])
+
+        num_boxes = [len(b) for b in boxes]
+        h_spatial = []; o_spatial = []
+        for idx, f in zip(indices, spatial_features.split(num_boxes)):
+            all_spatial = f[idx]
+            n = int(len(all_spatial) / 2)
+            h_spatial.append(all_spatial[:n])
+            o_spatial.append(all_spatial[n:])
+        h_spatial = torch.cat(h_spatial)
+        o_spatial = torch.cat(o_spatial)
+
+        box_pair_prior = torch.cat([
+            x_per_image['prior'] for x_per_image in x
+        ])
+        box_pair_labels = torch.cat([
+            x_per_image['labels'] for x_per_image in x
+        ])
+
+        logits = self.box_pair_predictor(torch.cat([
+            h_spatial, o_spatial
+        ], 1))
+        i, j = torch.nonzero(box_pair_prior).unbind(1)
+
+        results = [
+            torch.sigmoid(logits[i, j]) * box_pair_prior[i, j],
+            j, box_pair_labels[i, j],
+        ]
+        if self.training:
+            loss = nn.functional.binary_cross_entropy(
+                results[0], results[2]
+            )
+            results.append(loss)
+
+        return results
+
+class SpatialHandcraft(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.box_pair_predictor = nn.Sequential(
+            nn.Linear(36, 128),
+            nn.ReLU(),
+            nn.Linear(128, 512),
+            nn.ReLU(),
+            nn.Linear(512, 117)
+        )
+
+    def forward(self, x):
+        boxes_h = [x_per_image['boxes_h'] for x_per_image in x]
+        boxes_o = [x_per_image['boxes_o'] for x_per_image in x]
+        image_sizes = [x_per_image['size'] for x_per_image in x]
+        box_pair_spatial = self.get_handcrafted_encodings(
+            boxes_h, boxes_o, image_sizes
+        )
+        
+        box_pair_prior = torch.cat([
+            x_per_image['prior'] for x_per_image in x
+        ])
+        box_pair_labels = torch.cat([
+            x_per_image['labels'] for x_per_image in x
+        ])
+
+        logits = self.box_pair_predictor(box_pair_spatial)
+        i, j = torch.nonzero(box_pair_prior).unbind(1)
+
+        results = [
+            torch.sigmoid(logits[i, j]) * box_pair_prior[i, j],
+            j, box_pair_labels[i, j],
+        ]
+        if self.training:
+            loss = nn.functional.binary_cross_entropy(
                 results[0], results[2]
             )
             results.append(loss)
