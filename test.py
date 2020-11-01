@@ -2,27 +2,50 @@ import os
 import torch
 import argparse
 import torchvision
+from tqdm import tqdm
 from torch.utils.data import DataLoader
 
 import pocket
 from pocket.data import HICODet
+from pocket.utils import DetectionAPMeter
 
-from models import ModelWithGT, ModelWith1Mask, ModelWith2Masks, ModelWithNone, ModelWithVec
+from models import *
 from utils import preprocessed_collate, PreprocessedDataset, test
 
 MODELS = {
     'baseline': ModelWithNone,
-    'GT': ModelWithGT,
-    '2Masks': ModelWith2Masks,
-    '1Mask': ModelWith1Mask,
+    'gt': ModelWithGT,
+    'gt1': ModelWithGT1,
+    'gt_': ModelWithOnlyGT,
+    'gt_1': ModelWithOnlyGT1,
+    '2mask': ModelWith2Masks,
+    '1mask': ModelWith1Mask,
     'handcraft': ModelWithVec,
 }
+
+@torch.no_grad()
+def test_c(net, test_loader):
+    net.eval()
+    ap_test = DetectionAPMeter(117, algorithm='11P')
+    for batch in tqdm(test_loader):
+        batch_cuda = pocket.ops.relocate_to_cuda(batch)
+        output = net(batch_cuda)
+        if output is None:
+            continue
+        for result in output:
+            ap_test.append(
+                torch.cat(result["scores"]),
+                torch.cat(result["labels"]),
+                torch.cat(result["gt_labels"])
+            )
+    return ap_test.eval()
 
 def main(args):
     torch.cuda.set_device(0)
     torch.backends.cudnn.benchmark = False
 
     hico_test = HICODet(None, '../Incubator/InteractRCNN/hicodet/instances_test2015.json')
+    hico_train = HICODet(None, '../Incubator/InteractRCNN/hicodet/instances_train2015.json')
 
     testset = PreprocessedDataset('./preprocessed/test2015')
     test_loader = DataLoader(
@@ -44,8 +67,12 @@ def main(args):
     timer = pocket.utils.HandyTimer(maxlen=1)
     
     with timer:
-        test_ap = test(net, test_loader, hico_test)
-    print("Epoch: {} | test mAP: {:.4f}, total time: {:.2f}s".format(
+        #test_ap = test(net, test_loader, hico_test)
+        test_ap = test_c(net, test_loader)
+    torch.save(test_ap, 'map.pt')
+    for name, n, ap in zip(hico_train.verbs, hico_train.anno_action, test_ap):
+        print(name, n, ap.item())
+    print("\nEpoch: {} | test mAP: {:.4f}, total time: {:.2f}s".format(
         epoch, test_ap.mean(), timer[0]
     ))
 
