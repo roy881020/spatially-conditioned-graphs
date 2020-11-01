@@ -915,7 +915,7 @@ class SpatialIndividualMask(nn.Module):
     def __init__(self):
         super().__init__()
         self.box_spatial_head = nn.Sequential(
-            nn.Conv2d(1, 32, 5, stride=2),
+            nn.Conv2d(2, 32, 5, stride=2),
             nn.ReLU(),
             nn.Conv2d(32, 32, 3),
             nn.ReLU(),
@@ -946,7 +946,12 @@ class SpatialIndividualMask(nn.Module):
             boxes.append(b)
             indices.append(idx)
         masks = ModelWith1Mask.get_spatial_encoding(boxes, image_sizes)
-        spatial_features = self.box_spatial_head(masks[:, None, :, :])
+        avg_masks = masks.mean(0)
+        masks = torch.stack([
+            masks,
+            avg_masks.repeat(masks.shape[0], 1, 1)
+        ], dim=1)
+        spatial_features = self.box_spatial_head(masks)
 
         num_boxes = [len(b) for b in boxes]
         h_spatial = []; o_spatial = []
