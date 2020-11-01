@@ -739,9 +739,9 @@ class SpatialPairwiseMask(nn.Module):
             nn.AdaptiveAvgPool2d(1),
             Flatten(start_dim=1),
             nn.Linear(32, 512),
-            nn.ReLU(),
-            nn.Linear(512, 117)
+            nn.ReLU()
         )
+        self.box_pair_predictor = nn.Linear(512, 117)
     def forward(self, x):
         boxes_h = [x_per_image['boxes_h'] for x_per_image in x]
         boxes_o = [x_per_image['boxes_o'] for x_per_image in x]
@@ -789,6 +789,11 @@ class SpatialIndividualMask(nn.Module):
             nn.Conv2d(64, 64, 3),
             nn.MaxPool2d(2),
             Flatten(start_dim=1)    # Nx1024
+        )
+        self.box_pair_predictor = nn.Sequential(
+            nn.Linear(2048, 1024),
+            nn.ReLU(),
+            nn.Linear(1024, 117)
         )
 
     def forward(self, x):
@@ -853,7 +858,7 @@ class SpatialHandcraft(nn.Module):
         boxes_h = [x_per_image['boxes_h'] for x_per_image in x]
         boxes_o = [x_per_image['boxes_o'] for x_per_image in x]
         image_sizes = [x_per_image['size'] for x_per_image in x]
-        box_pair_spatial = self.get_handcrafted_encodings(
+        box_pair_spatial = ModelWithVec.get_handcrafted_encodings(
             boxes_h, boxes_o, image_sizes
         )
         
