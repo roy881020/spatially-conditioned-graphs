@@ -757,19 +757,19 @@ class ModelWithVecAtten(nn.Module):
         self.appearance_head = nn.Sequential(
             nn.Linear(2048, 1024),
             nn.ReLU(),
-            nn.Linear(1024, 512),
-            nn.ReLU()
         )
         self.spatial_head = nn.Sequential(
             nn.Linear(36, 128),
             nn.ReLU(),
-            nn.Linear(128, 512),
-            nn.ReLU()
+            nn.Linear(128, 256),
+            nn.ReLU(),
+            nn.Linear(256, 1024),
+            nn.ReLU(),
         )
 
-        self.spatial_predictor = nn.Linear(512, 117)
-        self.spatial_attention = nn.Linear(512, 512)
-        self.joint_predictor = nn.Linear(512, 117)
+        self.spatial_predictor = nn.Linear(1024, 117)
+        self.spatial_attention = nn.Linear(1024, 1024)
+        self.joint_predictor = nn.Linear(1024, 117)
 
     def forward(self, x):
         boxes_h = [x_per_image['boxes_h'] for x_per_image in x]
