@@ -646,10 +646,24 @@ class ModelWith1Mask(nn.Module):
 class ModelWithVec(nn.Module):
     def __init__(self):
         super().__init__()
-        self.box_pair_predictor = BoxPairPredictor(
-            2048 + 36,
-            1024,
-            117
+        self.appearance_head = nn.Sequential(
+            nn.Linear(2048, 1024),
+            nn.ReLU(),
+            nn.Linear(1024, 512),
+            nn.ReLU()
+        )
+        self.spatial_head = nn.Sequential(
+            nn.Linear(36, 128),
+            nn.ReLU(),
+            nn.Linear(128, 512),
+            nn.ReLU()
+        )
+
+        self.spatial_predictor = nn.Linear(512, 117)
+        self.joint_predictor = nn.Sequential(
+            nn.Linear(1024, 512),
+            nn.ReLU(),
+            nn.Linear(512, 117)
         )
 
     @staticmethod
@@ -711,13 +725,133 @@ class ModelWithVec(nn.Module):
             x_per_image['labels'] for x_per_image in x
         ])
 
-        logits = self.box_pair_predictor(torch.cat([
-            box_pair_features, box_pair_spatial
+        f_s = self.spatial_head(box_pair_spatial)
+        logits_s = self.spatial_predictor(f_s)
+        f_a = self.appearance_head(box_pair_features)
+        logits_c = self.joint_predictor(torch.cat([
+            f_a, f_s
         ], 1))
+
         i, j = torch.nonzero(box_pair_prior).unbind(1)
 
         results = [
-            torch.sigmoid(logits[i, j]) * box_pair_prior[i, j],
+            torch.sigmoid(logits_s[i, j]) * torch.sigmoid(logits_c[i, j]) * box_pair_prior[i, j],
+            j, box_pair_labels[i, j],
+        ]
+        if self.training:
+            loss = nn.functional.binary_cross_entropy(
+                results[0], results[2]
+            )
+            results.append(loss)
+
+        return results
+
+class ModelWithVecAtten(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.appearance_head = nn.Sequential(
+            nn.Linear(2048, 1024),
+            nn.ReLU(),
+            nn.Linear(1024, 512),
+            nn.ReLU()
+        )
+        self.spatial_head = nn.Sequential(
+            nn.Linear(36, 128),
+            nn.ReLU(),
+            nn.Linear(128, 512),
+            nn.ReLU()
+        )
+
+        self.spatial_predictor = nn.Linear(512, 117)
+        self.spatial_attention = nn.Linear(512, 512)
+        self.joint_predictor = nn.Linear(512, 117)
+
+    def forward(self, x):
+        boxes_h = [x_per_image['boxes_h'] for x_per_image in x]
+        boxes_o = [x_per_image['boxes_o'] for x_per_image in x]
+        image_sizes = [x_per_image['size'] for x_per_image in x]
+        box_pair_spatial = ModelWithVec.get_handcrafted_encodings(
+            boxes_h, boxes_o, image_sizes
+        )
+        box_pair_features = torch.cat([
+            x_per_image['features'] for x_per_image in x
+        ])
+        box_pair_prior = torch.cat([
+            x_per_image['prior'] for x_per_image in x
+        ])
+        box_pair_labels = torch.cat([
+            x_per_image['labels'] for x_per_image in x
+        ])
+
+        f_s = self.spatial_head(box_pair_spatial)
+        logits_s = self.spatial_predictor(f_s)
+        f_a = self.appearance_head(box_pair_features)
+        logits_c = self.joint_predictor(
+            f_a * self.spatial_attention(f_s)
+        )
+
+        i, j = torch.nonzero(box_pair_prior).unbind(1)
+
+        results = [
+            torch.sigmoid(logits_s[i, j]) * torch.sigmoid(logits_c[i, j]) * box_pair_prior[i, j],
+            j, box_pair_labels[i, j],
+        ]
+        if self.training:
+            loss = nn.functional.binary_cross_entropy(
+                results[0], results[2]
+            )
+            results.append(loss)
+
+        return results
+
+class ModelWithVecSum(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.appearance_head = nn.Sequential(
+            nn.Linear(2048, 1024),
+            nn.ReLU(),
+            nn.Linear(1024, 512),
+            nn.ReLU()
+        )
+        self.spatial_head = nn.Sequential(
+            nn.Linear(36, 128),
+            nn.ReLU(),
+            nn.Linear(128, 512),
+            nn.ReLU()
+        )
+
+        self.spatial_predictor = nn.Linear(512, 117)
+        self.spatial_attention = nn.Linear(512, 512)
+        self.joint_predictor = nn.Linear(512, 117)
+
+    def forward(self, x):
+        boxes_h = [x_per_image['boxes_h'] for x_per_image in x]
+        boxes_o = [x_per_image['boxes_o'] for x_per_image in x]
+        image_sizes = [x_per_image['size'] for x_per_image in x]
+        box_pair_spatial = ModelWithVec.get_handcrafted_encodings(
+            boxes_h, boxes_o, image_sizes
+        )
+        box_pair_features = torch.cat([
+            x_per_image['features'] for x_per_image in x
+        ])
+        box_pair_prior = torch.cat([
+            x_per_image['prior'] for x_per_image in x
+        ])
+        box_pair_labels = torch.cat([
+            x_per_image['labels'] for x_per_image in x
+        ])
+
+        f_s = self.spatial_head(box_pair_spatial)
+        logits_s = self.spatial_predictor(f_s)
+        f_a = self.appearance_head(box_pair_features)
+        logits_c = self.joint_predictor(
+            f_a + self.spatial_attention(f_s)
+        )
+
+        i, j = torch.nonzero(box_pair_prior).unbind(1)
+
+        results = [
+            torch.sigmoid(logits_s[i, j]) * torch.sigmoid(logits_c[i, j]) * box_pair_prior[i, j],
             j, box_pair_labels[i, j],
         ]
         if self.training:
