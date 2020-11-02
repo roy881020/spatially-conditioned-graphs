@@ -13,7 +13,7 @@ import torchvision.ops.boxes as box_ops
 from torch import nn
 from pocket.ops import Flatten
 
-from ops import LIS
+from ops import LIS, compute_spatial_encodings
 
 class InteractionHead(nn.Module):
     """Interaction head that constructs and classifies box pairs
@@ -136,10 +136,10 @@ class InteractionHead(nn.Module):
             torch.cat(scores), torch.cat(labels)
         )
 
-    def postprocess(self, logits, prior, boxes_h, boxes_o, object_class, labels):
+    def postprocess(self, scores, prior, boxes_h, boxes_o, object_class, labels):
         """
         Arguments:
-            logits(Tensor[N,K]): Pre-sigmoid logits for target classes
+            scores(Tensor[N,K]): Post-sigmoid scores for target classes
             prior(List[Tensor[M,K]]): Prior scores organised on a per-image basis
             boxes_h(List[Tensor[M,4]])
             boxes_o(List[Tensor[M,4]])
@@ -157,7 +157,6 @@ class InteractionHead(nn.Module):
 
         """
         num_boxes = [len(p) for p in prior]
-        scores = torch.sigmoid(logits)
         scores = scores.split(num_boxes)
         if len(labels) == 0:
             labels = [[] for _ in range(len(num_boxes))]
@@ -219,8 +218,8 @@ class InteractionHead(nn.Module):
 
         box_features = self.box_roi_pool(features, box_coords, image_shapes)
 
-        box_pair_features, boxes_h, boxes_o, object_class,\
-        box_pair_labels, box_pair_prior = self.box_pair_head(
+        box_pair_features, box_pair_spatial, boxes_h, boxes_o,\
+        object_class, box_pair_labels, box_pair_prior = self.box_pair_head(
             features, image_shapes, box_features,
             box_coords, box_labels, box_scores, targets
         )
@@ -230,11 +229,12 @@ class InteractionHead(nn.Module):
             return None
         else:
             box_pair_features = torch.cat(box_pair_features)
+            box_pair_spatial = torch.cat(box_pair_spatial)
 
-        logits = self.box_pair_predictor(box_pair_features)
+        scores = self.box_pair_predictor(box_pair_features, box_pair_spatial)
 
         results = self.postprocess(
-            logits, box_pair_prior, boxes_h, boxes_o,
+            scores, box_pair_prior, boxes_h, boxes_o,
             object_class, box_pair_labels
         )
         if len(results) == 0:
@@ -311,6 +311,16 @@ class InteractGraph(nn.Module):
             node_encoding_size + representation_size,
             node_encoding_size,
             bias=False
+        )
+
+        # Map spatial encodings to the same dimension as appearance features
+        self.spatial_head = nn.Sequential(
+            nn.Linear(36, 128),
+            nn.ReLU(),
+            nn.Linear(128, 256),
+            nn.ReLU(),
+            nn.Linear(256, 1024),
+            nn.ReLU(),
         )
 
     def associate_with_ground_truth(self, boxes_h, boxes_o, targets):
@@ -392,7 +402,7 @@ class InteractGraph(nn.Module):
         counter = 0
         all_boxes_h = []; all_boxes_o = []; all_object_class = []
         all_labels = []; all_prior = []
-        all_box_pair_features = []
+        all_box_pair_features = []; all_box_pair_spatial = []
         for b_idx, (coords, labels, scores) in enumerate(zip(box_coords, box_labels, box_scores)):
             n = num_boxes[b_idx]
             device = box_features.device
@@ -421,6 +431,12 @@ class InteractGraph(nn.Module):
             # Human nodes have been duplicated and will be treated independently
             # of the humans included amongst object nodes
             x = x.flatten(); y = y.flatten()
+
+            # Compute spatial features
+            box_pair_spatial = compute_spatial_encodings(
+                [coords[x_keep]], [coords[y_keep]], [image_shapes[b_idx]]
+            )
+            box_pair_spatial = self.spatial_head(box_pair_spatial)
 
             adjacency_matrix = torch.ones(n_h, n, device=device)
             for i in range(self.num_iter):
@@ -451,6 +467,7 @@ class InteractGraph(nn.Module):
             all_box_pair_features.append(torch.cat([
                 h_node_encodings[x_keep], node_encodings[y_keep]
             ], 1))
+            all_box_pair_spatial.append(box_pair_spatial)
             all_boxes_h.append(coords[x_keep])
             all_boxes_o.append(coords[y_keep])
             all_object_class.append(labels[y_keep])
@@ -463,4 +480,5 @@ class InteractGraph(nn.Module):
 
             counter += n
 
-        return all_box_pair_features, all_boxes_h, all_boxes_o, all_object_class, all_labels, all_prior
+        return all_box_pair_features, all_box_pair_spatial, all_boxes_h, all_boxes_o,\
+            all_object_class, all_labels, all_prior
