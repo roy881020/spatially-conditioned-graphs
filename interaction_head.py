@@ -322,6 +322,8 @@ class InteractGraph(nn.Module):
             nn.Linear(256, 1024),
             nn.ReLU(),
         )
+        self.spatial_attention_h = nn.Linear(1024, 1024)
+        self.spatial_attention_o = nn.Linear(1024, 1024)
 
     def associate_with_ground_truth(self, boxes_h, boxes_o, targets):
         """
@@ -434,9 +436,15 @@ class InteractGraph(nn.Module):
 
             # Compute spatial features
             box_pair_spatial = compute_spatial_encodings(
-                [coords[x_keep]], [coords[y_keep]], [image_shapes[b_idx]]
+                [coords[x]], [coords[y]], [image_shapes[b_idx]]
             )
             box_pair_spatial = self.spatial_head(box_pair_spatial)
+            # Compute spatial attention on messages from human nodes
+            attention_h = self.spatial_attention_h(
+                box_pair_spatial).reshape(n_h, n, -1)
+            # Compute spatial attention on messages from object nodes
+            attention_o = self.spatial_attention_o(
+                box_pair_spatial).reshape(n_h, n, -1)
 
             adjacency_matrix = torch.ones(n_h, n, device=device)
             for i in range(self.num_iter):
@@ -449,14 +457,20 @@ class InteractGraph(nn.Module):
 
                 # Update human nodes
                 h_node_encodings = self.sub_update(torch.cat([
-                    h_node_encodings,
-                    torch.mm(adjacency_matrix, self.obj_to_sub(node_encodings))
+                    h_node_encodings, torch.sum(
+                        adjacency_matrix[..., None] *
+                        attention_o *
+                        self.obj_to_sub(node_encodings).repeat(n_h, 1, 1),
+                    dim=1)
                 ], 1))
 
-                # Update object nodes (including human nodes)
+                # Update object nodes
                 node_encodings = self.obj_update(torch.cat([
-                    node_encodings,
-                    torch.mm(adjacency_matrix.t(), self.sub_to_obj(h_node_encodings))
+                    node_encodings, torch.sum(
+                        adjacency_matrix.t()[..., None] *
+                        attention_h.permute([1, 0, 2]) *
+                        self.sub_to_obj(h_node_encodings).repeat(n, 1, 1),
+                    dim=1)
                 ], 1))
 
             if targets is not None:
@@ -467,7 +481,9 @@ class InteractGraph(nn.Module):
             all_box_pair_features.append(torch.cat([
                 h_node_encodings[x_keep], node_encodings[y_keep]
             ], 1))
-            all_box_pair_spatial.append(box_pair_spatial)
+            all_box_pair_spatial.append(
+                box_pair_spatial.reshape(n_h, n, -1)[x_keep, y_keep]
+            )
             all_boxes_h.append(coords[x_keep])
             all_boxes_o.append(coords[y_keep])
             all_object_class.append(labels[y_keep])
