@@ -148,7 +148,8 @@ class InteractGraphNet(GenericHOINetwork):
         )
 
         box_pair_predictor = BoxPairPredictor(
-            input_size=node_encoding_size * 2,
+            appearance_size=node_encoding_size,
+            spatial_size=1024,
             representation_size=representation_size,
             num_classes=num_classes
         )
