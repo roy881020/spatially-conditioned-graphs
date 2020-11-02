@@ -247,6 +247,26 @@ class InteractionHead(nn.Module):
 
         return results
 
+class Adjacency(nn.Module):
+    def __init__(self, appearance_size, spatial_size, representation_size):
+        super().__init__()
+
+        self.appearance_head = nn.Sequential(
+            nn.Linear(2 * appearance_size, representation_size),
+            nn.ReLU(),
+        )
+        self.spatial_attention = nn.Linear(
+            spatial_size, representation_size
+        )
+        self.predictor = nn.Linear(representation_size, 1)
+
+    def forward(self, appearance, spatial):
+        f_a = self.appearance_head(appearance)
+        logits = self.predictor(
+            f_a * self.spatial_attention(spatial)
+        )
+        return torch.sigmoid(logits)
+
 class InteractGraph(nn.Module):
     def __init__(self,
                 out_channels,
@@ -282,13 +302,10 @@ class InteractGraph(nn.Module):
         )
 
         # Compute adjacency matrix
-        self.adjacency = nn.Sequential(
-            nn.Linear(node_encoding_size*2, representation_size),
-            nn.ReLU(),
-            nn.Linear(representation_size, int(representation_size/2)),
-            nn.ReLU(),
-            nn.Linear(int(representation_size/2), 1),
-            nn.Sigmoid()
+        self.adjacency = Adjacency(
+            appearance_size=node_encoding_size,
+            spatial_size=1024,
+            representation_size=representation_size,
         )
 
         # Compute messages
@@ -452,7 +469,7 @@ class InteractGraph(nn.Module):
                 weights = self.adjacency(torch.cat([
                     h_node_encodings[x],
                     node_encodings[y]
-                ], 1))
+                ], 1), box_pair_spatial)
                 adjacency_matrix = weights.reshape(n_h, n)
 
                 # Update human nodes
