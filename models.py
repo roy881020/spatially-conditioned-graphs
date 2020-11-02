@@ -77,18 +77,31 @@ class GenericHOINetwork(nn.Module):
             return results
 
 class BoxPairPredictor(nn.Module):
-    def __init__(self, input_size, representation_size, num_classes):
+    def __init__(self, appearance_size, spatial_size, representation_size, num_classes):
         super().__init__()
 
-        self.predictor = nn.Sequential(
-            nn.Linear(input_size, representation_size),
+        self.appearance_head = nn.Sequential(
+            nn.Linear(2 * appearance_size, representation_size),
             nn.ReLU(),
-            nn.Linear(representation_size, representation_size),
-            nn.ReLU(),
-            nn.Linear(representation_size, num_classes)
         )
-    def forward(self, x):
-        return self.predictor(x)
+        self.spatial_attention = nn.Linear(
+            spatial_size, representation_size
+        )
+        self.spatial_predictor = nn.Linear(
+            spatial_size, num_classes
+        )
+        self.predictor = nn.Linear(
+            representation_size,
+            num_classes
+        )
+
+    def forward(self, appearance, spatial):
+        logits_s = self.spatial_predictor(spatial)
+        f_a = self.appearance_head(appearance)
+        logits_c = self.predictor(
+            f_a * self.spatial_attention(spatial)
+        )
+        return torch.sigmoid(logits_c) * torch.sigmoid(logits_s)
 
 class InteractGraphNet(GenericHOINetwork):
     def __init__(self,
