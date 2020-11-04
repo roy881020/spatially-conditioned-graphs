@@ -84,9 +84,6 @@ class BoxPairPredictor(nn.Module):
             nn.Linear(2 * appearance_size, representation_size),
             nn.ReLU(),
         )
-        self.spatial_attention = nn.Linear(
-            spatial_size, representation_size
-        )
         self.spatial_predictor = nn.Linear(
             spatial_size, num_classes
         )
@@ -99,7 +96,7 @@ class BoxPairPredictor(nn.Module):
         logits_s = self.spatial_predictor(spatial)
         f_a = self.appearance_head(appearance)
         logits_c = self.predictor(
-            f_a * self.spatial_attention(spatial)
+            f_a * spatial
         )
         return torch.sigmoid(logits_c) * torch.sigmoid(logits_s)
 
