@@ -322,8 +322,6 @@ class InteractGraph(nn.Module):
             nn.Linear(256, 1024),
             nn.ReLU(),
         )
-        self.spatial_attention_h = nn.Linear(1024, 1024)
-        self.spatial_attention_o = nn.Linear(1024, 1024)
 
     def associate_with_ground_truth(self, boxes_h, boxes_o, targets):
         """
@@ -439,12 +437,8 @@ class InteractGraph(nn.Module):
                 [coords[x]], [coords[y]], [image_shapes[b_idx]]
             )
             box_pair_spatial = self.spatial_head(box_pair_spatial)
-            # Compute spatial attention on messages from human nodes
-            attention_h = self.spatial_attention_h(
-                box_pair_spatial).reshape(n_h, n, -1)
-            # Compute spatial attention on messages from object nodes
-            attention_o = self.spatial_attention_o(
-                box_pair_spatial).reshape(n_h, n, -1)
+            # Reshape
+            spatial_attention = box_pair_spatial.reshape(n_h, n, -1)
 
             adjacency_matrix = torch.ones(n_h, n, device=device)
             for i in range(self.num_iter):
@@ -459,7 +453,7 @@ class InteractGraph(nn.Module):
                 h_node_encodings = self.sub_update(torch.cat([
                     h_node_encodings, torch.sum(
                         adjacency_matrix[..., None] *
-                        attention_o *
+                        spatial_attention *
                         self.obj_to_sub(node_encodings).repeat(n_h, 1, 1),
                     dim=1)
                 ], 1))
@@ -468,7 +462,7 @@ class InteractGraph(nn.Module):
                 node_encodings = self.obj_update(torch.cat([
                     node_encodings, torch.sum(
                         adjacency_matrix.t()[..., None] *
-                        attention_h.permute([1, 0, 2]) *
+                        spatial_attention.permute([1, 0, 2]) *
                         self.sub_to_obj(h_node_encodings).repeat(n, 1, 1),
                     dim=1)
                 ], 1))
