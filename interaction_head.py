@@ -325,7 +325,13 @@ class InteractGraph(nn.Module):
         )
 
         # Compute adjacency matrix
-        self.adjacency = nn.Linear(representation_size, 1)
+        self.adjacency = nn.Sequential(
+            nn.Linear(node_encoding_size*2, representation_size),
+            nn.ReLU(),
+            nn.Linear(representation_size, int(representation_size/2)),
+            nn.ReLU(),
+            nn.Linear(int(representation_size/2), 1)
+        )
 
         # Compute messages
         self.sub_to_obj = MessageAttentionHead(
@@ -348,12 +354,6 @@ class InteractGraph(nn.Module):
             nn.ReLU(),
             nn.Linear(256, 1024),
             nn.ReLU(),
-        )
-
-        # Spatial attention head
-        self.attention_head = AttentionHead(
-            node_encoding_size * 2,
-            1024, representation_size
         )
 
     def associate_with_ground_truth(self, boxes_h, boxes_o, targets):
@@ -476,13 +476,10 @@ class InteractGraph(nn.Module):
             adjacency_matrix = torch.ones(n_h, n, device=device)
             for i in range(self.num_iter):
                 # Compute weights of each edge
-                weights = self.attention_head(
-                    torch.cat([
-                        h_node_encodings[x],
-                        node_encodings[y]
-                    ], 1),
-                    box_pair_spatial
-                )
+                weights = self.adjacency(torch.cat([
+                    h_node_encodings[x],
+                    node_encodings[y]
+                ], 1))
                 adjacency_matrix = self.adjacency(weights).reshape(n_h, n)
 
                 # Update human nodes
@@ -514,13 +511,9 @@ class InteractGraph(nn.Module):
                     coords[x_keep], coords[y_keep], targets[b_idx])
                 )
                 
-            all_box_pair_features.append(self.attention_head(
-                torch.cat([
-                    h_node_encodings[x_keep],
-                    node_encodings[y_keep]
-                    ], 1),
-                box_pair_spatial_reshaped[x_keep, y_keep]
-            ))
+            all_box_pair_features.append(torch.cat([
+                h_node_encodings[x_keep], node_encodings[y_keep]
+            ], 1))
             all_boxes_h.append(coords[x_keep])
             all_boxes_o.append(coords[y_keep])
             all_object_class.append(labels[y_keep])
