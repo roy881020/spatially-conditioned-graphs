@@ -480,7 +480,7 @@ class InteractGraph(nn.Module):
                     h_node_encodings[x],
                     node_encodings[y]
                 ], 1))
-                adjacency_matrix = self.adjacency(weights).reshape(n_h, n)
+                adjacency_matrix = weights.reshape(n_h, n)
 
                 # Update human nodes
                 messages_to_h = F.relu(torch.sum(
