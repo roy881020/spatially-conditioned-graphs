@@ -249,14 +249,32 @@ class InteractionHead(nn.Module):
         return results
 
 class AttentionHead(nn.Module):
-    def __init__(self, appearance_size, spatial_size, representation_size):
+    def __init__(self, appearance_size, spatial_size, representation_size, cardinality):
         super().__init__()
-        self.fc_1 = nn.Linear(appearance_size, representation_size)
-        self.fc_2 = nn.Linear(spatial_size, representation_size)
+        self.cardinality = cardinality
         self.fc_3 = nn.Linear(representation_size, representation_size)
+
+        sub_repr_size = int(representation_size / cardinality)
+        assert sub_repr_size * cardinality == representation_size, \
+            "The given representation size should be divisible by cardinality"
+        # nn.Sequential is merely used as a container
+        # This makes sure all layers can be registered properly
+        layers = [
+            nn.Linear(appearance_size, sub_repr_size)
+            for _ in range(cardinality)
+        ]
+        self.fc_1 = nn.Sequential(*layers)
+        layers = [
+            nn.Linear(spatial_size, sub_repr_size)
+            for _ in range(cardinality)
+        ]
+        self.fc_2 = nn.Sequential(*layers)
     def forward(self, appearance, spatial):
         return F.relu(self.fc_3(
-            F.relu(self.fc_1(appearance) * self.fc_2(spatial))
+            F.relu(torch.cat([
+                fc_1(appearance) * fc_2(spatial)
+                for fc_1, fc_2 in zip(self.fc_1, self.fc_2)
+            ], dim=1))
         ))
 
 class InteractGraph(nn.Module):
