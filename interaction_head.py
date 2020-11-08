@@ -298,6 +298,10 @@ class InteractGraph(nn.Module):
         self.norm_h = nn.LayerNorm(node_encoding_size)
         self.norm_o = nn.LayerNorm(node_encoding_size)
 
+        # Dropout on messages
+        self.dropout_h = nn.Dropout(p=0.4)
+        self.dropout_o = nn.Dropout(p=0.4)
+
     def associate_with_ground_truth(self, boxes_h, boxes_o, targets):
         """
         Arguements:
@@ -422,7 +426,7 @@ class InteractGraph(nn.Module):
                     self.obj_to_sub(node_encodings)
                 ))
                 h_node_encodings = self.norm_h(
-                    h_node_encodings + messages_to_h
+                    h_node_encodings + self.dropout_h(messages_to_h)
                 )
 
                 # Update object nodes (including human nodes)
@@ -431,7 +435,7 @@ class InteractGraph(nn.Module):
                     self.sub_to_obj(h_node_encodings)
                 ))
                 node_encodings = self.norm_o(
-                    node_encodings + messages_to_o
+                    node_encodings + self.dropout_o(messages_to_o)
                 )
 
             if targets is not None:
