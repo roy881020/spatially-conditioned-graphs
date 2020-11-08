@@ -81,10 +81,8 @@ class BoxPairPredictor(nn.Module):
         super().__init__()
 
         self.predictor = nn.Sequential(
-            nn.Dropout(),
             nn.Linear(input_size, representation_size),
             nn.ReLU(),
-            nn.Dropout(),
             nn.Linear(representation_size, representation_size),
             nn.ReLU(),
             nn.Linear(representation_size, num_classes)
