@@ -38,6 +38,7 @@ class InteractionHead(nn.Module):
                 box_roi_pool,
                 box_pair_head,
                 box_pair_predictor,
+                box_pair_predictor_x,
                 human_idx,
                 num_classes,
                 box_nms_thresh=0.5,
@@ -50,6 +51,7 @@ class InteractionHead(nn.Module):
         self.box_roi_pool = box_roi_pool
         self.box_pair_head = box_pair_head
         self.box_pair_predictor = box_pair_predictor
+        self.box_pair_predictor_x = box_pair_predictor_x
 
         self.num_classes = num_classes
         self.human_idx = human_idx
@@ -137,7 +139,7 @@ class InteractionHead(nn.Module):
             torch.cat(scores), torch.cat(labels)
         )
 
-    def postprocess(self, logits, prior, boxes_h, boxes_o, object_class, labels):
+    def postprocess(self, logits, logits_x, prior, boxes_h, boxes_o, object_class, labels):
         """
         Arguments:
             logits(Tensor[N,K]): Pre-sigmoid logits for target classes
@@ -158,7 +160,7 @@ class InteractionHead(nn.Module):
 
         """
         num_boxes = [len(p) for p in prior]
-        scores = torch.sigmoid(logits)
+        scores = torch.sigmoid(logits) * torch.sigmoid(logits_x)
         scores = scores.split(num_boxes)
         if len(labels) == 0:
             labels = [[] for _ in range(len(num_boxes))]
@@ -220,7 +222,7 @@ class InteractionHead(nn.Module):
 
         box_features = self.box_roi_pool(features, box_coords, image_shapes)
 
-        box_pair_features, boxes_h, boxes_o, object_class,\
+        box_pair_features, box_pair_appearance, boxes_h, boxes_o, object_class,\
         box_pair_labels, box_pair_prior = self.box_pair_head(
             features, image_shapes, box_features,
             box_coords, box_labels, box_scores, targets
@@ -231,11 +233,13 @@ class InteractionHead(nn.Module):
             return None
         else:
             box_pair_features = torch.cat(box_pair_features)
+            box_pair_appearance = torch.cat(box_pair_appearance)
 
         logits = self.box_pair_predictor(box_pair_features)
+        logits_x = self.box_pair_predictor_x(box_pair_appearance)
 
         results = self.postprocess(
-            logits, box_pair_prior, boxes_h, boxes_o,
+            logits, logits_x, box_pair_prior, boxes_h, boxes_o,
             object_class, box_pair_labels
         )
         if len(results) == 0:
@@ -286,6 +290,13 @@ class InteractGraph(nn.Module):
 
         # Box head to map RoI features to low dimensional
         self.box_head = nn.Sequential(
+            Flatten(start_dim=1),
+            nn.Linear(out_channels * roi_pool_size ** 2, node_encoding_size),
+            nn.ReLU(),
+            nn.Linear(node_encoding_size, node_encoding_size),
+            nn.ReLU()
+        )
+        self.box_head_x = nn.Sequential(
             Flatten(start_dim=1),
             nn.Linear(out_channels * roi_pool_size ** 2, node_encoding_size),
             nn.ReLU(),
@@ -391,6 +402,7 @@ class InteractGraph(nn.Module):
         if self.training:
             assert targets is not None, "Targets should be passed during training"
 
+        box_features_x = self.box_head_x(box_features)
         box_features = self.box_head(box_features)
 
         num_boxes = [len(boxes_per_image) for boxes_per_image in box_coords]
@@ -399,6 +411,7 @@ class InteractGraph(nn.Module):
         all_boxes_h = []; all_boxes_o = []; all_object_class = []
         all_labels = []; all_prior = []
         all_box_pair_features = []
+        all_box_pair_appearance = []
         for b_idx, (coords, labels, scores) in enumerate(zip(box_coords, box_labels, box_scores)):
             n = num_boxes[b_idx]
             device = box_features.device
@@ -412,8 +425,10 @@ class InteractGraph(nn.Module):
                 raise AssertionError("Human detections are not permuted to the top")
 
             node_encodings = box_features[counter: counter+n]
+            node_encodings_x = box_features_x[counter: counter+n]
             # Duplicate human nodes
             h_node_encodings = node_encodings[:n_h]
+            h_node_encodings_x = node_encodings_x[:n_h]
             # Get the pairwise index between every human and object instance
             x, y = torch.meshgrid(
                 torch.arange(n_h, device=device),
@@ -478,6 +493,10 @@ class InteractGraph(nn.Module):
                     ], 1),
                 box_pair_spatial_reshaped[x_keep, y_keep]
             ))
+            all_box_pair_appearance.append(torch.cat([
+                h_node_encodings_x[x_keep],
+                node_encodings_x[y_keep]
+            ], 1))
             all_boxes_h.append(coords[x_keep])
             all_boxes_o.append(coords[y_keep])
             all_object_class.append(labels[y_keep])
@@ -488,4 +507,4 @@ class InteractGraph(nn.Module):
 
             counter += n
 
-        return all_box_pair_features, all_boxes_h, all_boxes_o, all_object_class, all_labels, all_prior
+        return all_box_pair_features, all_box_pair_appearance, all_boxes_h, all_boxes_o, all_object_class, all_labels, all_prior
