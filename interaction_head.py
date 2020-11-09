@@ -340,7 +340,7 @@ class InteractGraph(nn.Module):
         # Spatial attention head
         self.attention_head = AttentionHead(
             node_encoding_size * 2,
-            1024, representation_size
+            1024, representation_size, cardinality=16
         )
 
     def associate_with_ground_truth(self, boxes_h, boxes_o, targets):
