@@ -132,9 +132,17 @@ class InteractionHead(nn.Module):
         for result in results:
             scores.append(result['scores'])
             labels.append(result['labels'])
+        scores = torch.cat(scores)
+        labels = torch.cat(labels)
 
+        device = scores.device
+        p_idx = torch.nonzero(labels).squeeze(1)
+        n_idx = torch.nonzero(1-labels).squeeze(1)
+        n = len(p_idx) * 300
+        n_keep = n_idx[torch.randperm(len(n_idx), device=device)[:n]]
+        keep = torch.cat([p_idx, n_keep])
         return nn.functional.binary_cross_entropy(
-            torch.cat(scores), torch.cat(labels)
+            scores[keep], labels[keep]
         )
 
     def postprocess(self, logits, prior, boxes_h, boxes_o, object_class, labels):
