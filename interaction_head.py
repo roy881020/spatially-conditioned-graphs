@@ -273,6 +273,8 @@ class InteractGraph(nn.Module):
         self.fg_iou_thresh = fg_iou_thresh
         self.num_iter = num_iter
 
+        self.avg_pool = nn.AdaptiveAvgPool2d(output_size=1)
+
         # Box head to map RoI features to low dimensional
         self.box_head = nn.Sequential(
             Flatten(start_dim=1),
@@ -370,6 +372,7 @@ class InteractGraph(nn.Module):
         if self.training:
             assert targets is not None, "Targets should be passed during training"
 
+        global_features = self.avg_pool(features[3]).flatten(start_dim=1)
         box_features = self.box_head(box_features)
 
         num_boxes = [len(boxes_per_image) for boxes_per_image in box_coords]
@@ -440,7 +443,8 @@ class InteractGraph(nn.Module):
                 )
                 
             all_box_pair_features.append(torch.cat([
-                h_node_encodings[x_keep], node_encodings[y_keep]
+                h_node_encodings[x_keep], node_encodings[y_keep],
+                global_features[b_idx].repeat(len(x_keep), 1)
             ], 1))
             all_boxes_h.append(coords[x_keep])
             all_boxes_o.append(coords[y_keep])
