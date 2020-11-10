@@ -38,6 +38,7 @@ class InteractionHead(nn.Module):
                 box_roi_pool,
                 box_pair_head,
                 box_pair_predictor,
+                box_pair_predictor_s,
                 human_idx,
                 num_classes,
                 box_nms_thresh=0.5,
@@ -50,6 +51,7 @@ class InteractionHead(nn.Module):
         self.box_roi_pool = box_roi_pool
         self.box_pair_head = box_pair_head
         self.box_pair_predictor = box_pair_predictor
+        self.box_pair_predictor_s = box_pair_predictor_s
 
         self.num_classes = num_classes
         self.human_idx = human_idx
@@ -137,7 +139,7 @@ class InteractionHead(nn.Module):
             torch.cat(scores), torch.cat(labels)
         )
 
-    def postprocess(self, logits, prior, boxes_h, boxes_o, object_class, labels):
+    def postprocess(self, logits, logits_s, prior, boxes_h, boxes_o, object_class, labels):
         """
         Arguments:
             logits(Tensor[N,K]): Pre-sigmoid logits for target classes
@@ -158,7 +160,7 @@ class InteractionHead(nn.Module):
 
         """
         num_boxes = [len(p) for p in prior]
-        scores = torch.sigmoid(logits)
+        scores = torch.sigmoid(logits) * torch.sigmoid(logits_s)
         scores = scores.split(num_boxes)
         if len(labels) == 0:
             labels = [[] for _ in range(len(num_boxes))]
@@ -220,7 +222,7 @@ class InteractionHead(nn.Module):
 
         box_features = self.box_roi_pool(features, box_coords, image_shapes)
 
-        box_pair_features, boxes_h, boxes_o, object_class,\
+        box_pair_features, box_pair_spatial, boxes_h, boxes_o, object_class,\
         box_pair_labels, box_pair_prior = self.box_pair_head(
             features, image_shapes, box_features,
             box_coords, box_labels, box_scores, targets
@@ -231,11 +233,13 @@ class InteractionHead(nn.Module):
             return None
         else:
             box_pair_features = torch.cat(box_pair_features)
+            box_pair_spatial = torch.cat(box_pair_spatial)
 
         logits = self.box_pair_predictor(box_pair_features)
+        logits_s = self.box_pair_predictor_s(box_pair_spatial)
 
         results = self.postprocess(
-            logits, box_pair_prior, boxes_h, boxes_o,
+            logits, logits_s, box_pair_prior, boxes_h, boxes_o,
             object_class, box_pair_labels
         )
         if len(results) == 0:
@@ -404,7 +408,7 @@ class InteractGraph(nn.Module):
         counter = 0
         all_boxes_h = []; all_boxes_o = []; all_object_class = []
         all_labels = []; all_prior = []
-        all_box_pair_features = []
+        all_box_pair_features = []; all_box_pair_spatial = []
         for b_idx, (coords, labels, scores) in enumerate(zip(box_coords, box_labels, box_scores)):
             n = num_boxes[b_idx]
             device = box_features.device
@@ -479,6 +483,7 @@ class InteractGraph(nn.Module):
                     ], 1),
                 box_pair_spatial
             ))
+            all_box_pair_spatial.append(box_pair_spatial)
             all_boxes_h.append(coords[x_keep])
             all_boxes_o.append(coords[y_keep])
             all_object_class.append(labels[y_keep])
@@ -490,4 +495,4 @@ class InteractGraph(nn.Module):
 
             counter += n
 
-        return all_box_pair_features, all_boxes_h, all_boxes_o, all_object_class, all_labels, all_prior
+        return all_box_pair_features, all_box_pair_spatial, all_boxes_h, all_boxes_o, all_object_class, all_labels, all_prior
