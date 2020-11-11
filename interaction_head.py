@@ -415,7 +415,7 @@ class InteractGraph(nn.Module):
         global_features = self.avg_pool(features[3]).flatten(start_dim=1)
         box_features = self.box_head(box_features)
 
-        global_features = [g_head(global_features) for g_head, global_features in self.global_head]
+        global_features = [g_head(global_features) for g_head in self.global_head]
 
         num_boxes = [len(boxes_per_image) for boxes_per_image in box_coords]
         
