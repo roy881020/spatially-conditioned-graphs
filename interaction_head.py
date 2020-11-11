@@ -136,7 +136,7 @@ class InteractionHead(nn.Module):
         labels = torch.cat(labels)
         n = torch.tensor(len(labels)).float()
         loss = binary_focal_loss(
-            torch.cat(scores), labels, reduction='none'
+            torch.cat(scores), labels, reduction='sum'
         )
         return loss / torch.sqrt(n)
 
