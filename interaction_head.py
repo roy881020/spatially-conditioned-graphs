@@ -249,7 +249,7 @@ class InteractionHead(nn.Module):
         return results
 
 class AttentionHead(nn.Module):
-    def __init__(self, appearance_size, representation_size, cardinality):
+    def __init__(self, appearance_size, spatial_size, representation_size, cardinality):
         super().__init__()
         self.cardinality = cardinality
 
@@ -263,17 +263,21 @@ class AttentionHead(nn.Module):
             for _ in range(cardinality)
         ]
         self.fc_1 = nn.Sequential(*layers)
-
+        layers = [
+            nn.Linear(spatial_size, sub_repr_size)
+            for _ in range(cardinality)
+        ]
+        self.fc_2 = nn.Sequential(*layers)
         layers = [
             nn.Linear(sub_repr_size, representation_size)
             for _ in range(cardinality)
         ]
         self.fc_3 = nn.Sequential(*layers)
-    def forward(self, appearance, global_f):
+    def forward(self, appearance, spatial, global_f):
         return F.relu(torch.stack([
-            fc_3(F.relu(fc_1(appearance) * f2))
-            for fc_1, f2, fc_3
-            in zip(self.fc_1, global_f, self.fc_3)
+            fc_3(F.relu(fc_1(appearance) * fc_2(spatial) * g_f))
+            for fc_1, fc_2, fc_3, g_f
+            in zip(self.fc_1, self.fc_2, self.fc_3, global_f)
         ]).sum(dim=0))
 
 class InteractGraph(nn.Module):
@@ -326,9 +330,19 @@ class InteractGraph(nn.Module):
         self.norm_h = nn.LayerNorm(node_encoding_size)
         self.norm_o = nn.LayerNorm(node_encoding_size)
 
+        # Map spatial encodings to the same dimension as appearance features
+        self.spatial_head = nn.Sequential(
+            nn.Linear(36, 128),
+            nn.ReLU(),
+            nn.Linear(128, 256),
+            nn.ReLU(),
+            nn.Linear(256, 1024),
+            nn.ReLU(),
+        )
+
         # Spatial attention head
         self.attention_head = AttentionHead(
-            node_encoding_size * 2,
+            node_encoding_size * 2, 1024,
             representation_size, cardinality=16
         )
 
@@ -452,6 +466,12 @@ class InteractGraph(nn.Module):
             # of the humans included amongst object nodes
             x = x.flatten(); y = y.flatten()
 
+            # Compute spatial features
+            box_pair_spatial = compute_spatial_encodings(
+                [coords[x_keep]], [coords[y_keep]], [image_shapes[b_idx]]
+            )
+            box_pair_spatial = self.spatial_head(box_pair_spatial)
+
             adjacency_matrix = torch.ones(n_h, n, device=device)
             for i in range(self.num_iter):
                 # Compute weights of each edge
@@ -489,6 +509,7 @@ class InteractGraph(nn.Module):
                     h_node_encodings[x_keep],
                     node_encodings[y_keep]
                     ], 1),
+                box_pair_spatial,
                 [g_features[b_idx, None] for g_features in global_features]
             ))
             all_boxes_h.append(coords[x_keep])
