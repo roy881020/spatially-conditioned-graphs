@@ -499,16 +499,15 @@ class InteractGraph(nn.Module):
                     coords[x_keep], coords[y_keep], targets[b_idx])
                 )
                 
-            all_box_pair_features.append(
+            all_box_pair_features.append(torch.cat([
                 torch.cat([
                     h_node_encodings[x_keep],
                     node_encodings[y_keep]
                     ], 1),
                 self.attention_head_g(
                     [g_features[b_idx, None] for g_features in global_features],
-                    box_pair_spatial
-                )
-            )
+                    box_pair_spatial)
+            ], dim=1))
             all_boxes_h.append(coords[x_keep])
             all_boxes_o.append(coords[y_keep])
             all_object_class.append(labels[y_keep])
