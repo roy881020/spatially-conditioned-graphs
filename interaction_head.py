@@ -284,6 +284,33 @@ class AttentionHead(nn.Module):
             for fc_1, fc_2, fc_3
             in zip(self.fc_1, self.fc_2, self.fc_3)
         ]).sum(dim=0))
+class AttentionHeadx(nn.Module):
+    """Multi-branch attention head with one static input"""
+    def __init__(self, spatial_size, representation_size, cardinality):
+        super().__init__()
+        self.cardinality = cardinality
+
+        sub_repr_size = int(representation_size / cardinality)
+        assert sub_repr_size * cardinality == representation_size, \
+            "The given representation size should be divisible by cardinality"
+        # nn.Sequential is merely used as a container
+        # This makes sure all layers can be registered properly
+        layers = [
+            nn.Linear(spatial_size, sub_repr_size)
+            for _ in range(cardinality)
+        ]
+        self.fc_2 = nn.Sequential(*layers)
+        layers = [
+            nn.Linear(sub_repr_size, representation_size)
+            for _ in range(cardinality)
+        ]
+        self.fc_3 = nn.Sequential(*layers)
+    def forward(self, appearance, spatial):
+        return F.relu(torch.stack([
+            fc_3(F.relu(f_app * fc_2(spatial)))
+            for f_app, fc_2, fc_3
+            in zip(appearance, self.fc_2, self.fc_3)
+        ]).sum(dim=0))
 
 class InteractGraph(nn.Module):
     def __init__(self,
@@ -348,6 +375,15 @@ class InteractGraph(nn.Module):
         # Spatial attention head
         self.attention_head = AttentionHead(
             node_encoding_size * 2,
+            1024, representation_size, cardinality=16
+        )
+
+        self.avg_pool = nn.AdaptiveAvgPool2d(output_size=1)
+        self.global_head = nn.ModuleList([
+            nn.Linear(256, 64) for _ in range(16)
+        ])
+        # Attention head for global features
+        self.attention_head_g = AttentionHeadx(
             1024, representation_size, cardinality=16
         )
 
@@ -423,6 +459,8 @@ class InteractGraph(nn.Module):
         if self.training:
             assert targets is not None, "Targets should be passed during training"
 
+        global_features = self.avg_pool(features[3]).flatten(start_dim=1)
+        global_features = [g_head(global_features) for g_head in self.global_head]
         box_features = self.box_head(box_features)
 
         num_boxes = [len(boxes_per_image) for boxes_per_image in box_coords]
@@ -498,13 +536,18 @@ class InteractGraph(nn.Module):
                     coords[x_keep], coords[y_keep], targets[b_idx])
                 )
                 
-            all_box_pair_features.append(self.attention_head(
-                torch.cat([
-                    h_node_encodings[x_keep],
-                    node_encodings[y_keep]
-                    ], 1),
-                box_pair_spatial
-            ))
+            all_box_pair_features.append(torch.cat([
+                self.attention_head(
+                    torch.cat([
+                        h_node_encodings[x_keep],
+                        node_encodings[y_keep]
+                        ], 1),
+                    box_pair_spatial),
+                self.attention_head_g(
+                    [g_feat[b_idx, None] for g_feat in global_features],
+                    box_pair_spatial
+                )
+            ], dim=1))
             all_boxes_h.append(coords[x_keep])
             all_boxes_o.append(coords[y_keep])
             all_object_class.append(labels[y_keep])
