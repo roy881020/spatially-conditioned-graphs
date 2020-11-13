@@ -505,7 +505,6 @@ class InteractGraph(nn.Module):
                     ], 1),
                 box_pair_spatial
             ))
-            ], dim=1))
             all_boxes_h.append(coords[x_keep])
             all_boxes_o.append(coords[y_keep])
             all_object_class.append(labels[y_keep])
