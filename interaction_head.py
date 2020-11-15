@@ -133,14 +133,9 @@ class InteractionHead(nn.Module):
             scores.append(result['scores'])
             labels.append(result['labels'])
 
-        labels = torch.cat(labels)
-        n_p = len(torch.nonzero(labels))
-        if n_p == 0:
-            n_p = 1
-        loss = binary_focal_loss(
-            torch.cat(scores), labels, reduction='sum', gamma=0.5
+        return nn.functional.binary_cross_entropy(
+            torch.cat(scores), torch.cat(labels)
         )
-        return loss / n_p
 
     def postprocess(self, logits, prior, boxes_h, boxes_o, object_class, labels):
         """
