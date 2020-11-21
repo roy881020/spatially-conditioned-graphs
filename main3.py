@@ -15,10 +15,10 @@ from models import InteractGraphNet
 from utils import custom_collate, CustomisedDataset
 
 @torch.no_grad()
-def test(net, test_loader):
+def validate(net, val_loader):
     net.eval()
     ap_test = DetectionAPMeter(117, algorithm='11P')
-    for batch in tqdm(test_loader):
+    for batch in tqdm(val_loader):
         batch_cuda = pocket.ops.relocate_to_cuda(batch)
         output = net(*batch_cuda)
         if output is None:
@@ -35,9 +35,9 @@ def test(net, test_loader):
 def main(args):
 
     torch.cuda.set_device(0)
-    torch.backends.cudnn.benchmark = False
+    torch.manual_seed(args.random_seed)
 
-    trainset = HICODet(
+    dataset = HICODet(
         root=os.path.join(args.data_root,
             "hico_20160224_det/images/train2015"),
         annoFile=os.path.join(args.data_root,
@@ -46,14 +46,7 @@ def main(args):
         target_transform=pocket.ops.ToTensor(input_format='dict')
     )
 
-    testset = HICODet(
-        root=os.path.join(args.data_root,
-            "hico_20160224_det/images/test2015"),
-        annoFile=os.path.join(args.data_root,
-            "instances_test2015.json"),
-        transform=torchvision.transforms.ToTensor(),
-        target_transform=pocket.ops.ToTensor(input_format='dict')
-    )
+    trainset, valset = dataset.split(args.split_ratio)
 
     train_loader = DataLoader(
             dataset=CustomisedDataset(trainset, 
@@ -66,20 +59,16 @@ def main(args):
             num_workers=args.num_workers, pin_memory=True, shuffle=True
     )
 
-    test_loader = DataLoader(
-            dataset=CustomisedDataset(testset,
+    val_loader = DataLoader(
+            dataset=CustomisedDataset(valset,
                 os.path.join(args.data_root,
-                "fasterrcnn_resnet50_fpn_detections/test2015"),
+                "fasterrcnn_resnet50_fpn_detections/train2015"),
                 human_idx=49,
                 box_score_thresh_h=args.human_thresh,
                 box_score_thresh_o=args.object_thresh
             ), collate_fn=custom_collate, batch_size=args.batch_size,
             num_workers=args.num_workers, pin_memory=True
     )
-
-
-    # Fix random seed for model synchronisation
-    torch.manual_seed(args.random_seed)
 
     net = InteractGraphNet(
         trainset.object_to_verb, 49,
@@ -187,7 +176,7 @@ def main(args):
         with timer:
             ap_1 = ap_train.eval()
         with timer:
-            ap_2 = test(net, test_loader)
+            ap_2 = validate(net, val_loader)
         print("Epoch: {} | training mAP: {:.4f}, eval. time: {:.2f}s |"
             "test mAP: {:.4f}, total time: {:.2f}s".format(
                 epoch+1, ap_1.mean().item(), timer[0],
@@ -203,6 +192,7 @@ if __name__ == '__main__':
     parser.add_argument('--num-epochs', default=20, type=int)
     parser.add_argument('--random-seed', default=1, type=int)
     parser.add_argument('--learning-rate', default=0.001, type=float)
+    parser.add_argument('--split-ratio', default=0.8, type=float)
     parser.add_argument('--momentum', default=0.9, type=float)
     parser.add_argument('--weight-decay', default=1e-4, type=float)
     parser.add_argument('--human-thresh', default=0.5, type=float)
