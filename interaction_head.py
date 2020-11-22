@@ -271,12 +271,12 @@ class AttentionHead(nn.Module):
             for _ in range(cardinality)
         ])
         self.fc_3 = nn.ModuleList([
-            nn.Linear(sub_repr_size, representation_size)
+            nn.Linear(sub_repr_size * 2, representation_size)
             for _ in range(cardinality)
         ])
     def forward(self, appearance, spatial):
         return F.relu(torch.stack([
-            fc_3(F.relu(fc_1(appearance) * fc_2(spatial)))
+            fc_3(F.relu(torch.cat([fc_1(appearance), fc_2(spatial)], dim=-1)))
             for fc_1, fc_2, fc_3
             in zip(self.fc_1, self.fc_2, self.fc_3)
         ]).sum(dim=0))
@@ -296,18 +296,18 @@ class MessageAttentionHead(AttentionHead):
         n_h, n = spatial.shape[:2]
         assert len(appearance) == n_h, "Incorrect size of dim0 for appearance features"
         return torch.stack([
-            fc_3(F.relu(
-                fc_1(appearance).repeat(n, 1, 1)
-                * fc_2(spatial).permute([1, 0, 2])
+            fc_3(F.relu(torch.cat([
+                fc_1(appearance).repeat(n, 1, 1),
+                fc_2(spatial).permute([1, 0, 2])], dim=-1)
             )) for fc_1, fc_2, fc_3 in zip(self.fc_1, self.fc_2, self.fc_3)
         ]).sum(dim=0)
     def _forward_object_nodes(self, appearance, spatial):
         n_h, n = spatial.shape[:2]
         assert len(appearance) == n, "Incorrect size of dim0 for appearance features"
         return torch.stack([
-            fc_3(F.relu(
-                fc_1(appearance).repeat(n_h, 1, 1)
-                * fc_2(spatial)
+            fc_3(F.relu(torch.cat([
+                fc_1(appearance).repeat(n_h, 1, 1),
+                fc_2(spatial)], dim=-1)
             )) for fc_1, fc_2, fc_3 in zip(self.fc_1, self.fc_2, self.fc_3)
         ]).sum(dim=0)
 
@@ -557,7 +557,7 @@ class InteractGraph(nn.Module):
                         ], 1),
                     box_pair_spatial_reshaped[x_keep, y_keep]
                 ), self.attention_head_g(
-                    global_features[b_idx, None],
+                    global_features[b_idx, None].repeat(len(x_keep), 1),
                     box_pair_spatial_reshaped[x_keep, y_keep])
             ], dim=1))
             all_boxes_h.append(coords[x_keep])
