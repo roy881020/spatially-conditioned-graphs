@@ -180,7 +180,7 @@ class InteractionHead(nn.Module):
             result_dict = dict(
                 boxes_h=b_h, boxes_o=b_o,
                 index=x, prediction=y,
-                scores=s[x, y] * p[x, y], object=o,
+                scores=s[x, y], object=o,
             )
             # If binary labels are provided
             if len(l):
