@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader, DistributedSampler
 import pocket
 from pocket.data import HICODet
 
-from models import InteractGraphNet
+from models import SpatioAttentiveGraph
 from utils import custom_collate, CustomisedEngine, CustomisedDataset
 
 def main(rank, args):
@@ -42,7 +42,7 @@ def main(rank, args):
     # Fix random seed for model synchronisation
     torch.manual_seed(args.random_seed)
 
-    net = InteractGraphNet(
+    net = SpatioAttentiveGraph(
         trainset.object_to_verb, 49,
         num_iterations=args.num_iter
     )
@@ -59,7 +59,7 @@ def main(rank, args):
         DataLoader(
             dataset=CustomisedDataset(trainset, 
                 os.path.join(args.data_root,
-                "fasterrcnn_resnet50_fpn_detections/train2015"),
+                "detections/train2015"),
                 human_idx=49
             ), collate_fn=custom_collate, batch_size=args.batch_size,
             num_workers=args.num_workers, pin_memory=True,
@@ -71,7 +71,7 @@ def main(rank, args):
         DataLoader(
             dataset=CustomisedDataset(testset,
                 os.path.join(args.data_root,
-                "fasterrcnn_resnet50_fpn_detections/test2015"),
+                "detections/test2015"),
                 human_idx=49
             ), collate_fn=custom_collate, batch_size=args.batch_size,
             num_workers=args.num_workers, pin_memory=True,
