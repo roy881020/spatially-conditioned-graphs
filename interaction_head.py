@@ -304,8 +304,7 @@ class MessageAttentionHead(nn.Module):
     def forward(self, *args):
         return self._forward_method(*args)
 
-
-class InteractGraph(nn.Module):
+class GraphHead(nn.Module):
     def __init__(self,
                 out_channels,
                 roi_pool_size,
