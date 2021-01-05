@@ -21,7 +21,7 @@ from torch.utils.data import DataLoader
 import pocket
 from pocket.data import HICODet
 
-from models import InteractGraphNet
+from models import SpatioAttentiveGraph
 from utils import CustomisedDataset, custom_collate
 
 def inference(net, dataloader, coco2hico, cache_dir):
@@ -48,6 +48,9 @@ def inference(net, dataloader, coco2hico, cache_dir):
         boxes_h = output['boxes_h'][box_idx]
         boxes_o = output['boxes_o'][box_idx]
         objects = output['object'][box_idx]
+        # Convert box representation to pixel indices
+        boxes_h[:, 2:] -= 1
+        boxes_o[:, 2:] -= 1
 
         scores = output['scores']
         verbs = output['prediction']
@@ -102,13 +105,11 @@ def main(args):
             "hico_20160224_det/images/{}".format(args.partition)),
         anno_file=os.path.join(args.data_root,
             "instances_{}.json".format(args.partition)),
-        transform=torchvision.transforms.ToTensor(),
         target_transform=pocket.ops.ToTensor(input_format='dict')
-    )    
+    )
     dataloader = DataLoader(
         dataset=CustomisedDataset(dataset,
-            os.path.join(args.data_root,
-            "fasterrcnn_resnet50_fpn_detections/{}".format(args.partition)),
+            args.detection_dir,
             human_idx=49,
             box_score_thresh_h=args.human_thresh,
             box_score_thresh_o=args.object_thresh
@@ -116,7 +117,7 @@ def main(args):
         num_workers=args.num_workers, pin_memory=True
     )
 
-    net = InteractGraphNet(
+    net = SpatioAttentiveGraph(
         dataset.object_to_verb, 49,
         num_iterations=args.num_iter
     )
@@ -131,13 +132,15 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train an interaction head")
-    parser.add_argument('--data-root', required=True, type=str)
-    parser.add_argument('--cache-dir', default='matcache', type=str)
+    parser.add_argument('--data-root', default='hicodet', type=str)
+    parser.add_argument('--detection-dir', default='hicodet/detections/test2015',
+                        type=str, help="Directory where detection files are stored")
+    parser.add_argument('--cache-dir', default='matlab', type=str)
     parser.add_argument('--partition', default='test2015', type=str)
-    parser.add_argument('--num-iter', default=3, type=int,
+    parser.add_argument('--num-iter', default=2, type=int,
                         help="Number of iterations to run message passing")
-    parser.add_argument('--human-thresh', default=0.5, type=float)
-    parser.add_argument('--object-thresh', default=0.5, type=float)
+    parser.add_argument('--human-thresh', default=0.2, type=float)
+    parser.add_argument('--object-thresh', default=0.2, type=float)
     parser.add_argument('--num-workers', default=2, type=int)
     parser.add_argument('--model-path', default='', type=str)
     
