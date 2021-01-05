@@ -281,7 +281,7 @@ class AttentionHead(nn.Module):
             in zip(self.fc_1, self.fc_2, self.fc_3)
         ]).sum(dim=0))
 
-class InteractGraph(nn.Module):
+class GraphHead(nn.Module):
     def __init__(self,
                 out_channels,
                 roi_pool_size,
