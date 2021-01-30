@@ -8,6 +8,7 @@ Australian Centre for Robotic Vision
 """
 
 import torch
+import torchvision
 import torch.nn.functional as F
 import torchvision.ops.boxes as box_ops
 
@@ -48,6 +49,7 @@ class InteractionHead(nn.Module):
         super().__init__()
 
         self.box_roi_pool = box_roi_pool
+        self.conv5 = torchvision.models.resnet50().layer4
         self.box_pair_head = box_pair_head
         self.box_pair_predictor = box_pair_predictor
 
@@ -224,6 +226,7 @@ class InteractionHead(nn.Module):
         box_scores = [detection['scores'] for detection in detections]
 
         box_features = self.box_roi_pool(features, box_coords, image_shapes)
+        box_features = self.conv5(box_features)
 
         box_pair_features, boxes_h, boxes_o, object_class,\
         box_pair_labels, box_pair_prior = self.box_pair_head(
@@ -341,10 +344,9 @@ class GraphHead(nn.Module):
 
         # Box head to map RoI features to low dimensional
         self.box_head = nn.Sequential(
+            nn.AdaptiveAvgPool2d(output_size=1),
             Flatten(start_dim=1),
-            nn.Linear(out_channels * roi_pool_size ** 2, node_encoding_size),
-            nn.ReLU(),
-            nn.Linear(node_encoding_size, node_encoding_size),
+            nn.Linear(out_channels, node_encoding_size),
             nn.ReLU()
         )
 
@@ -386,7 +388,7 @@ class GraphHead(nn.Module):
         self.avg_pool = nn.AdaptiveAvgPool2d(output_size=1)
         # Attention head for global features
         self.attention_head_g = AttentionHead(
-            256, 1024,
+            2048, 1024,
             representation_size, cardinality=16
         )
 
@@ -462,7 +464,7 @@ class GraphHead(nn.Module):
         if self.training:
             assert targets is not None, "Targets should be passed during training"
 
-        global_features = self.avg_pool(features[3]).flatten(start_dim=1)
+        global_features = self.avg_pool(features[0]).flatten(start_dim=1)
         box_features = self.box_head(box_features)
 
         num_boxes = [len(boxes_per_image) for boxes_per_image in box_coords]

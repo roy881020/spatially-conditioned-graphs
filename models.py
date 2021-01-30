@@ -8,6 +8,7 @@ Australian Centre for Robotic Vision
 """
 
 import torch
+import torchvision
 import torchvision.ops.boxes as box_ops
 
 from torch import nn
@@ -15,8 +16,7 @@ from torchvision.ops._utils import _cat
 from torchvision.ops import MultiScaleRoIAlign
 from torchvision.models.detection import transform
 
-import pocket.models as models
-
+from collections import OrderedDict
 from transforms import HOINetworkTransform
 from interaction_head import InteractionHead, GraphHead
 
@@ -64,6 +64,8 @@ class GenericHOINetwork(nn.Module):
                 images, detections, targets)
 
         features = self.backbone(images.tensors)
+        if isinstance(features, torch.Tensor):
+            features = OrderedDict([(0, features)])
         results = self.interaction_head(features, detections, 
             images.image_sizes, targets)
 
@@ -94,9 +96,9 @@ class SpatioAttentiveGraph(GenericHOINetwork):
     def __init__(self,
             object_to_action, human_idx,
             # Backbone parameters
-            backbone_name="resnet50", pretrained=True,
+            backbone_name="resnet152", pretrained=True,
             # Pooler parameters
-            output_size=7, sampling_ratio=2,
+            output_size=14, sampling_ratio=2,
             # Box pair head parameters
             node_encoding_size=1024,
             representation_size=1024,
@@ -113,11 +115,11 @@ class SpatioAttentiveGraph(GenericHOINetwork):
             max_object=15
             ):
 
-        backbone = models.fasterrcnn_resnet_fpn(backbone_name,
-            pretrained=pretrained).backbone
+        resnet = torchvision.models.__dict__[backbone_name](pretrained=True)
+        backbone = nn.Sequential(*list(resnet.children())[:7])
 
         box_roi_pool = MultiScaleRoIAlign(
-            featmap_names=[0, 1, 2, 3],
+            featmap_names=[0,],
             output_size=output_size,
             sampling_ratio=sampling_ratio
         )
