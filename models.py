@@ -125,7 +125,7 @@ class SpatioAttentiveGraph(GenericHOINetwork):
         )
 
         box_pair_head = GraphHead(
-            out_channels=backbone.out_channels,
+            out_channels=2048,
             roi_pool_size=output_size,
             node_encoding_size=node_encoding_size,
             representation_size=representation_size,

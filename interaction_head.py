@@ -388,7 +388,7 @@ class GraphHead(nn.Module):
         self.avg_pool = nn.AdaptiveAvgPool2d(output_size=1)
         # Attention head for global features
         self.attention_head_g = AttentionHead(
-            2048, 1024,
+            1024, 1024,
             representation_size, cardinality=16
         )
 
@@ -550,7 +550,7 @@ class GraphHead(nn.Module):
                 all_labels.append(self.associate_with_ground_truth(
                     coords[x_keep], coords[y_keep], targets[b_idx])
                 )
-                
+
             all_box_pair_features.append(torch.cat([
                 self.attention_head(
                     torch.cat([
