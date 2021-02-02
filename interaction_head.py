@@ -8,7 +8,6 @@ Australian Centre for Robotic Vision
 """
 
 import torch
-import torchvision
 import torch.nn.functional as F
 import torchvision.ops.boxes as box_ops
 
@@ -49,7 +48,6 @@ class InteractionHead(nn.Module):
         super().__init__()
 
         self.box_roi_pool = box_roi_pool
-        self.conv5 = torchvision.models.resnet50().layer4
         self.box_pair_head = box_pair_head
         self.box_pair_predictor = box_pair_predictor
 
@@ -226,7 +224,6 @@ class InteractionHead(nn.Module):
         box_scores = [detection['scores'] for detection in detections]
 
         box_features = self.box_roi_pool(features, box_coords, image_shapes)
-        box_features = self.conv5(box_features)
 
         box_pair_features, boxes_h, boxes_o, object_class,\
         box_pair_labels, box_pair_prior = self.box_pair_head(
@@ -388,7 +385,7 @@ class GraphHead(nn.Module):
         self.avg_pool = nn.AdaptiveAvgPool2d(output_size=1)
         # Attention head for global features
         self.attention_head_g = AttentionHead(
-            1024, 1024,
+            out_channels, 1024,
             representation_size, cardinality=16
         )
 

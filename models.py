@@ -98,7 +98,7 @@ class SpatioAttentiveGraph(GenericHOINetwork):
             # Backbone parameters
             backbone_name="resnet152", pretrained=True,
             # Pooler parameters
-            output_size=14, sampling_ratio=2,
+            output_size=7, sampling_ratio=2,
             # Box pair head parameters
             node_encoding_size=1024,
             representation_size=1024,
@@ -116,7 +116,7 @@ class SpatioAttentiveGraph(GenericHOINetwork):
             ):
 
         resnet = torchvision.models.__dict__[backbone_name](pretrained=True)
-        backbone = nn.Sequential(*list(resnet.children())[:7])
+        backbone = nn.Sequential(*list(resnet.children())[:8])
 
         box_roi_pool = MultiScaleRoIAlign(
             featmap_names=[0,],
