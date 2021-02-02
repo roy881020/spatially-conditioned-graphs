@@ -80,15 +80,16 @@ def main(rank, args):
         num_classes = 24
     net = SpatioAttentiveGraph(
         object_to_target, human_idx,
-        num_iterations=args.num_iter,
-        postprocess=False
+        num_iterations=args.num_iter, postprocess=False,
+        max_human=args.max_human, max_object=args.max_object
     )
     # Fix backbone parameters
     for p in net.backbone.parameters():
         p.requires_grad = False
 
     if os.path.exists(args.checkpoint_path):
-        print("Continue from saved checkpoint ", args.checkpoint_path)
+        print("=> Rank {}: continue from saved checkpoint".format(
+            rank), args.checkpoint_path)
         checkpoint = torch.load(args.checkpoint_path, map_location='cpu')
         net.load_state_dict(checkpoint['model_state_dict'])
         optim_state_dict = checkpoint['optim_state_dict']
@@ -96,7 +97,7 @@ def main(rank, args):
         epoch = checkpoint['epoch']
         iteration = checkpoint['iteration']
     else:
-        print("Start from a randomly initialised model")
+        print("=> Rank {}: start from a randomly initialised model".format(rank))
         optim_state_dict = None
         sched_state_dict = None
         epoch = 0; iteration = 0
@@ -149,7 +150,9 @@ if __name__ == '__main__':
                         help="The multiplier by which the learning rate is reduced")
     parser.add_argument('--human-thresh', default=0.2, type=float)
     parser.add_argument('--object-thresh', default=0.2, type=float)
-    parser.add_argument('--milestones', nargs='+', default=[10,],
+    parser.add_argument('--max-human', default=15, type=int)
+    parser.add_argument('--max-object', default=15, type=int)
+    parser.add_argument('--milestones', nargs='+', default=[10,], type=int,
                         help="The epoch number when learning rate is reduced")
     parser.add_argument('--num-workers', default=4, type=int)
     parser.add_argument('--print-interval', default=2000, type=int)
