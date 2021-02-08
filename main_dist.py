@@ -57,23 +57,20 @@ def main(rank, args):
     # Prepare grouped batch sampler
     def div(a, b):
         return a / b
-    ar_train = [div(*trainset.dataset.image_size(i)) for i in range(len(trainset))]
-    groups_train = create_aspect_ratio_groups(ar_train, k=3)
-    ar_val = [div(*valset.dataset.image_size(i)) for i in range(len(valset))]
-    groups_val = create_aspect_ratio_groups(ar_val, k=3)
+    aspect_ratios = [div(*trainset.dataset.image_size(i)) for i in range(len(trainset))]
+    group_ids = create_aspect_ratio_groups(aspect_ratios, k=3)
 
     train_loader = DataLoader(
         dataset=trainset, collate_fn=custom_collate,
         num_workers=args.num_workers, pin_memory=True,
         batch_sampler=GroupedBatchSampler(
-            train_sampler, groups_train, args.batch_size)
+            train_sampler, group_ids, args.batch_size)
     )
 
     val_loader = DataLoader(
         dataset=valset, collate_fn=custom_collate,
         num_workers=args.num_workers, pin_memory=True,
-        batch_sampler=GroupedBatchSampler(
-            val_sampler, groups_val, args.batch_size)
+        sampler=val_sampler, batch_size=4
     )
 
     # Fix random seed for model synchronisation
@@ -88,7 +85,7 @@ def main(rank, args):
         human_idx = 1
         num_classes = 24
     net = SpatioAttentiveGraph(
-        object_to_target, human_idx,
+        object_to_target, human_idx, num_classes=num_classes,
         num_iterations=args.num_iter, postprocess=False,
         max_human=args.max_human, max_object=args.max_object,
         distributed=True
