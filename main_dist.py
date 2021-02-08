@@ -58,9 +58,9 @@ def main(rank, args):
     def div(a, b):
         return a / b
     ar_train = [div(*trainset.dataset.image_size(i)) for i in range(len(trainset))]
-    groups_train = create_aspect_ratio_groups(ar_train, k=3)
+    groups_train = create_aspect_ratio_groups(ar_train, k=3, verbal=not bool(rank))
     ar_val = [div(*valset.dataset.image_size(i)) for i in range(len(valset))]
-    groups_val = create_aspect_ratio_groups(ar_val, k=3)
+    groups_val = create_aspect_ratio_groups(ar_val, k=3, verbal=not bool(rank))
 
     train_loader = DataLoader(
         dataset=trainset, collate_fn=custom_collate,
