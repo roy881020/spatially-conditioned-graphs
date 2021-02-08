@@ -16,7 +16,7 @@ import torch.multiprocessing as mp
 from torch.utils.data import DataLoader, DistributedSampler
 
 import pocket
-from pocket.data import HICODet
+from pocket.data import create_aspect_ratio_groups, GroupedBatchSampler
 
 from models import SpatioAttentiveGraph
 from utils import custom_collate, CustomisedDLE, DataFactory
@@ -47,24 +47,33 @@ def main(rank, args):
         box_score_thresh_o=args.object_thresh
     )
 
+    # Prepare distributed sampler
+    train_sampler = DistributedSampler(
+        trainset, num_replicas=args.world_size, rank=rank
+    )
+    val_sampler = DistributedSampler(
+        valset, num_replicas=args.world_size, rank=rank
+    )
+    # Prepare grouped batch sampler
+    def div(a, b):
+        return a / b
+    ar_train = [div(*trainset.dataset.image_size(i)) for i in range(len(trainset))]
+    groups_train = create_aspect_ratio_groups(ar_train, k=3)
+    ar_val = [div(*valset.dataset.image_size(i)) for i in range(len(valset))]
+    groups_val = create_aspect_ratio_groups(ar_val, k=3)
+
     train_loader = DataLoader(
-        dataset=trainset,
-        collate_fn=custom_collate, batch_size=args.batch_size,
+        dataset=trainset, collate_fn=custom_collate,
         num_workers=args.num_workers, pin_memory=True,
-        sampler=DistributedSampler(
-            trainset, 
-            num_replicas=args.world_size, 
-            rank=rank)
+        batch_sampler=GroupedBatchSampler(
+            train_sampler, groups_train, args.batch_size)
     )
 
     val_loader = DataLoader(
-        dataset=valset,
-        collate_fn=custom_collate, batch_size=args.batch_size,
+        dataset=valset, collate_fn=custom_collate,
         num_workers=args.num_workers, pin_memory=True,
-        sampler=DistributedSampler(
-            valset, 
-            num_replicas=args.world_size, 
-            rank=rank)
+        batch_sampler=GroupedBatchSampler(
+            val_sampler, groups_val, args.batch_size)
     )
 
     # Fix random seed for model synchronisation
@@ -81,7 +90,8 @@ def main(rank, args):
     net = SpatioAttentiveGraph(
         object_to_target, human_idx,
         num_iterations=args.num_iter, postprocess=False,
-        max_human=args.max_human, max_object=args.max_object
+        max_human=args.max_human, max_object=args.max_object,
+        distributed=True
     )
     # Fix backbone parameters
     for p in net.backbone.parameters():
