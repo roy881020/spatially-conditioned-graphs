@@ -189,7 +189,7 @@ class InteractionHead(nn.Module):
             result_dict = dict(
                 boxes_h=b_h, boxes_o=b_o,
                 index=x, prediction=y,
-                scores=s[x, y] * p[x, y], object=o,
+                scores=s[x, y] * p[x, y].pow(0.2), object=o,
             )
             # If binary labels are provided
             if len(l):
@@ -432,7 +432,7 @@ class GraphHead(nn.Module):
         prior = torch.zeros(len(x), self.num_cls, device=scores.device)
 
         # Product of human and object detection scores with LIS
-        prod = LIS(scores[x]) * LIS(scores[y])
+        prod = scores[x] * scores[y]
 
         # Map object class index to target class index
         # Object class index to target class index is a one-to-many mapping
