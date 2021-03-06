@@ -432,7 +432,7 @@ class GraphHead(nn.Module):
         prior = torch.zeros(len(x), self.num_cls, device=scores.device)
 
         # Product of human and object detection scores with LIS
-        prod = LIS(scores[x]) * LIS(scores[y])
+        prod = scores[x] * scores[y]
 
         # Map object class index to target class index
         # Object class index to target class index is a one-to-many mapping
