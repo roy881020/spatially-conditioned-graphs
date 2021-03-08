@@ -177,7 +177,7 @@ class InteractionHead(nn.Module):
 
         labels = torch.stack([labels] * 2, dim=0)
         loss = binary_focal_loss(
-            weights, labels, reduction='sum', gamma=self.gamma
+            weights, labels, reduction='sum', gamma=0.5
         )
         return loss / (n_p * 2)
 
