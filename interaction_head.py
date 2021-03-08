@@ -165,7 +165,7 @@ class InteractionHead(nn.Module):
             weights.append(result['weights'])
             labels.append(result['binary_labels'])
 
-        weights = torch.cat(weights)
+        weights = torch.cat(weights, dim=1)
         labels = torch.cat(labels)
         n_p = len(torch.nonzero(labels))
         if self.distributed:
@@ -174,10 +174,12 @@ class InteractionHead(nn.Module):
             dist.barrier()
             dist.all_reduce(n_p)
             n_p = (n_p / world_size).item()
+
+        labels = torch.stack([labels] * 2, dim=0)
         loss = binary_focal_loss(
-            weights, labels, reduction='sum', gamma=0.5
+            weights, labels, reduction='sum', gamma=self.gamma
         )
-        return loss / n_p
+        return loss / (n_p * 2)
 
     def postprocess(self, logits_p, logits_s, prior, boxes_h, boxes_o, object_class, labels):
         """
@@ -214,13 +216,17 @@ class InteractionHead(nn.Module):
         ):
             # Keep valid classes
             x, y = torch.nonzero(p[0]).unbind(1)
+            # Indices for unary interactiveness
+            wx = torch.arange(len(w), device=w.device).repeat(2, 1)
+            wy = torch.stack([o, -1 * torch.ones_like(o)], dim=0)
+            w_kept = w[wx, wy]
 
             result_dict = dict(
                 boxes_h=b_h, boxes_o=b_o,
                 index=x, prediction=y,
-                scores=s[x, y] * p[:, x, y].prod(dim=0) * w[x, o[x]].detach(),
+                scores=s[x, y] * p[:, x, y].prod(dim=0) * w_kept.prod(dim=0)[x].detach(),
                 object=o, prior=p[:, x, y],
-                weights=w[torch.arange(len(w), device=w.device), o]
+                weights=w_kept
             )
             # If binary labels are provided
             if l is not None:
