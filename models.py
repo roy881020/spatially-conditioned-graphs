@@ -98,8 +98,8 @@ class SpatioAttentiveGraph(GenericHOINetwork):
             # Pooler parameters
             output_size=7, sampling_ratio=2,
             # Box pair head parameters
-            node_encoding_size=1024,
-            representation_size=1024,
+            node_encoding_size=512,
+            representation_size=512,
             num_classes=117,
             box_score_thresh=0.2,
             gamma=0.5,
