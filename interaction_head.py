@@ -403,12 +403,12 @@ class GraphHead(nn.Module):
         self.sub_to_obj = MessageAttentionHead(
             node_encoding_size, 1024,
             representation_size, node_type='human',
-            cardinality=16
+            cardinality=8
         )
         self.obj_to_sub = MessageAttentionHead(
             node_encoding_size, 1024,
             representation_size, node_type='object',
-            cardinality=16
+            cardinality=8
         )
 
         self.norm_h = nn.LayerNorm(node_encoding_size)
@@ -428,14 +428,14 @@ class GraphHead(nn.Module):
         self.attention_head = AttentionHead(
             node_encoding_size * 2,
             1024, representation_size,
-            cardinality=16
+            cardinality=8
         )
 
         self.avg_pool = nn.AdaptiveAvgPool2d(output_size=1)
         # Attention head for global features
         self.attention_head_g = AttentionHead(
             256, 1024,
-            representation_size, cardinality=16
+            representation_size, cardinality=8
         )
 
     def associate_with_ground_truth(self, boxes_h, boxes_o, targets):
