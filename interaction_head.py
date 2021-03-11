@@ -324,7 +324,7 @@ class MultiBranchFusion(nn.Module):
         ])
     def forward(self, appearance, spatial):
         return F.relu(torch.stack([
-            fc_3(F.relu(fc_1(appearance) * fc_2(spatial)))
+            fc_3(F.relu(fc_1(appearance) + fc_2(spatial)))
             for fc_1, fc_2, fc_3
             in zip(self.fc_1, self.fc_2, self.fc_3)
         ]).sum(dim=0))
@@ -346,7 +346,7 @@ class MessageMBF(MultiBranchFusion):
         return torch.stack([
             fc_3(F.relu(
                 fc_1(appearance).repeat(n, 1, 1)
-                * fc_2(spatial).permute([1, 0, 2])
+                + fc_2(spatial).permute([1, 0, 2])
             )) for fc_1, fc_2, fc_3 in zip(self.fc_1, self.fc_2, self.fc_3)
         ]).sum(dim=0)
     def _forward_object_nodes(self, appearance, spatial):
@@ -355,7 +355,7 @@ class MessageMBF(MultiBranchFusion):
         return torch.stack([
             fc_3(F.relu(
                 fc_1(appearance).repeat(n_h, 1, 1)
-                * fc_2(spatial)
+                + fc_2(spatial)
             )) for fc_1, fc_2, fc_3 in zip(self.fc_1, self.fc_2, self.fc_3)
         ]).sum(dim=0)
 
