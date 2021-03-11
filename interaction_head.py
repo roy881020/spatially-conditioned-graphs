@@ -629,7 +629,7 @@ class GraphHead(nn.Module):
                         ], 1),
                     box_pair_spatial_reshaped[x_keep, y_keep]
                 ), self.attention_head_g(
-                    global_features[b_idx, None],
+                    global_features[b_idx, None].repeat(len(x_keep), 1),
                     box_pair_spatial_reshaped[x_keep, y_keep])
             ], dim=1))
             all_boxes_h.append(coords[x_keep])
