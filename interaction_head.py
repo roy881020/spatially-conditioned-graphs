@@ -525,10 +525,6 @@ class GraphHead(nn.Module):
         global_features = self.avg_pool(features['3']).flatten(start_dim=1)
         box_features = self.box_head(box_features)
 
-        # Add noise to appearance features
-        noise = torch.randn_like(box_features) * self.std_dev
-        box_features = box_features + noise
-
         num_boxes = [len(boxes_per_image) for boxes_per_image in box_coords]
         
         counter = 0
@@ -578,6 +574,11 @@ class GraphHead(nn.Module):
                 [coords[x]], [coords[y]], [image_shapes[b_idx]]
             )
             box_pair_spatial = self.spatial_head(box_pair_spatial)
+
+            # Add noise to spatial features
+            noise = torch.randn_like(box_pair_spatial) * self.std_dev
+            box_pair_spatial = box_pair_spatial + noise
+
             # Reshape the spatial features
             box_pair_spatial_reshaped = box_pair_spatial.reshape(n_h, n, -1)
 
