@@ -369,6 +369,7 @@ class GraphHead(nn.Module):
                 node_encoding_size, 
                 representation_size, 
                 num_cls, human_idx,
+                std_dev,
                 object_class_to_target_class,
                 fg_iou_thresh=0.5,
                 num_iter=1):
@@ -383,6 +384,8 @@ class GraphHead(nn.Module):
         self.num_cls = num_cls
         self.human_idx = human_idx
         self.object_class_to_target_class = object_class_to_target_class
+
+        self.std_dev = std_dev
 
         self.fg_iou_thresh = fg_iou_thresh
         self.num_iter = num_iter
@@ -521,6 +524,10 @@ class GraphHead(nn.Module):
 
         global_features = self.avg_pool(features['3']).flatten(start_dim=1)
         box_features = self.box_head(box_features)
+
+        # Add noise to appearance features
+        noise = torch.randn_like(box_features) * self.std_dev
+        box_features = box_features + noise
 
         num_boxes = [len(boxes_per_image) for boxes_per_image in box_coords]
         

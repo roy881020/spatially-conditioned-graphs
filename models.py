@@ -93,6 +93,7 @@ class BoxPairPredictor(nn.Module):
 class SpatioAttentiveGraph(GenericHOINetwork):
     def __init__(self,
             object_to_action, human_idx,
+            std_dev,
             # Backbone parameters
             backbone_name="resnet50", pretrained=True,
             # Pooler parameters
@@ -135,7 +136,8 @@ class SpatioAttentiveGraph(GenericHOINetwork):
             human_idx=human_idx,
             object_class_to_target_class=object_to_action,
             fg_iou_thresh=fg_iou_thresh,
-            num_iter=num_iterations
+            num_iter=num_iterations,
+            std_dev=std_dev
         )
 
         box_pair_predictor = nn.Linear(representation_size * 2, num_classes)
