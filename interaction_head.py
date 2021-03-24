@@ -711,7 +711,7 @@ class GraphHead(Module):
             x = x.flatten(); y = y.flatten()
 
             # Jitter boxes
-            jittered_boxes = jitter_boxes(coords, image_shapes[b_idx], perc=self.jitter_perc)
+            jittered_boxes = jitter_boxes([coords], [image_shapes[b_idx]], perc=self.jitter_perc)[0]
             # Compute spatial features
             box_pair_spatial = compute_spatial_encodings(
                 [jittered_boxes[x]], [jittered_boxes[y]], [image_shapes[b_idx]]
