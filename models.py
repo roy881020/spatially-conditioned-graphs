@@ -102,6 +102,7 @@ class SpatiallyConditionedGraph(GenericHOINetwork):
     def __init__(self,
         object_to_action: List[list],
         human_idx: int,
+        jitter_perc: float,
         # Backbone parameters
         backbone_name: str = "resnet50",
         pretrained: bool = True,
@@ -163,7 +164,8 @@ class SpatiallyConditionedGraph(GenericHOINetwork):
             box_score_thresh=box_score_thresh,
             max_human=max_human,
             max_object=max_object,
-            distributed=distributed
+            distributed=distributed,
+            jitter_perc=jitter_perc
         )
 
         if image_mean is None:

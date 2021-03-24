@@ -20,6 +20,31 @@ from collections import OrderedDict
 
 from ops import compute_spatial_encodings, binary_focal_loss
 
+def jitter_boxes(boxes, image_shapes, perc):
+    """
+    boxes: List[Tensor]
+    image_shapes: List[Tuple[int, int]]
+    perc: float
+    """
+    new_boxes = []
+    for b, (imh, imw) in zip(boxes, image_shapes):
+        w, h = (b[:, 2:] - b[:, :2]).unbind(1)
+        dx_sgn, dy_sgn = (torch.randint(
+            0, 2, (len(b), 2), device=b.device)
+        * 2 - 1).unbind(1)
+        dx = w * perc * dx_sgn
+        dy = h * perc * dy_sgn
+        boxes_ = b + torch.stack([dx, dy, dx, dy], dim=1)
+
+        boxes_[:, 0].clamp_(min=0., max=imw)
+        boxes_[:, 1].clamp_(min=0., max=imh)
+        boxes_[:, 2].clamp_(min=0., max=imw)
+        boxes_[:, 3].clamp_(min=0., max=imh)
+
+        new_boxes.append(boxes_)
+
+    return new_boxes
+
 class InteractionHead(Module):
     """Interaction head that constructs and classifies box pairs
 
@@ -55,6 +80,7 @@ class InteractionHead(Module):
         box_pair_head: Module,
         box_pair_suppressor: Module,
         box_pair_predictor: Module,
+        jitter_perc: float,
         # Dataset properties
         human_idx: int,
         num_classes: int,
@@ -72,6 +98,8 @@ class InteractionHead(Module):
         self.box_pair_head = box_pair_head
         self.box_pair_suppressor = box_pair_suppressor
         self.box_pair_predictor = box_pair_predictor
+
+        self.jitter_perc = jitter_perc
 
         self.num_classes = num_classes
         self.human_idx = human_idx
@@ -312,7 +340,8 @@ class InteractionHead(Module):
         box_labels = [detection['labels'] for detection in detections]
         box_scores = [detection['scores'] for detection in detections]
 
-        box_features = self.box_roi_pool(features, box_coords, image_shapes)
+        jittered_boxes = jitter_boxes(box_coords, image_shapes, perc=self.jitter_perc)
+        box_features = self.box_roi_pool(features, jittered_boxes, image_shapes)
 
         box_pair_features, boxes_h, boxes_o, object_class,\
         box_pair_labels, box_pair_prior = self.box_pair_head(
