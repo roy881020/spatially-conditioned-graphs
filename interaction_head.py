@@ -80,7 +80,6 @@ class InteractionHead(Module):
         box_pair_head: Module,
         box_pair_suppressor: Module,
         box_pair_predictor: Module,
-        jitter_perc: float,
         # Dataset properties
         human_idx: int,
         num_classes: int,
@@ -98,8 +97,6 @@ class InteractionHead(Module):
         self.box_pair_head = box_pair_head
         self.box_pair_suppressor = box_pair_suppressor
         self.box_pair_predictor = box_pair_predictor
-
-        self.jitter_perc = jitter_perc
 
         self.num_classes = num_classes
         self.human_idx = human_idx
@@ -340,8 +337,7 @@ class InteractionHead(Module):
         box_labels = [detection['labels'] for detection in detections]
         box_scores = [detection['scores'] for detection in detections]
 
-        jittered_boxes = jitter_boxes(box_coords, image_shapes, perc=self.jitter_perc)
-        box_features = self.box_roi_pool(features, jittered_boxes, image_shapes)
+        box_features = self.box_roi_pool(features, box_coords, image_shapes)
 
         box_pair_features, boxes_h, boxes_o, object_class,\
         box_pair_labels, box_pair_prior = self.box_pair_head(
@@ -497,6 +493,7 @@ class GraphHead(Module):
         node_encoding_size: int, 
         representation_size: int, 
         num_cls: int, human_idx: int,
+        jitter_perc: float,
         object_class_to_target_class: List[list],
         fg_iou_thresh: float = 0.5,
         num_iter: int = 2
@@ -511,6 +508,7 @@ class GraphHead(Module):
 
         self.num_cls = num_cls
         self.human_idx = human_idx
+        self.jitter_perc = jitter_perc
         self.object_class_to_target_class = object_class_to_target_class
 
         self.fg_iou_thresh = fg_iou_thresh
@@ -712,9 +710,11 @@ class GraphHead(Module):
             # of the humans included amongst object nodes
             x = x.flatten(); y = y.flatten()
 
+            # Jitter boxes
+            jittered_boxes = jitter_boxes(coords, image_shapes[b_idx], perc=self.jitter_perc)
             # Compute spatial features
             box_pair_spatial = compute_spatial_encodings(
-                [coords[x]], [coords[y]], [image_shapes[b_idx]]
+                [jittered_boxes[x]], [jittered_boxes[y]], [image_shapes[b_idx]]
             )
             box_pair_spatial = self.spatial_head(box_pair_spatial)
             # Reshape the spatial features
