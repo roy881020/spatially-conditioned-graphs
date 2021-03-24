@@ -79,7 +79,8 @@ def main(rank, args):
         num_iterations=args.num_iter, postprocess=False,
         max_human=args.max_human, max_object=args.max_object,
         box_score_thresh=args.box_score_thresh,
-        distributed=True
+        distributed=True,
+        std_dev=args.std_dev
     )
 
     if os.path.exists(args.checkpoint_path):
@@ -156,6 +157,7 @@ if __name__ == '__main__':
     parser.add_argument('--lr-decay', default=0.1, type=float,
                         help="The multiplier by which the learning rate is reduced")
     parser.add_argument('--box-score-thresh', default=0.2, type=float)
+    parser.add_argument('--std-dev', default=0.0, type=float)
     parser.add_argument('--max-human', default=15, type=int)
     parser.add_argument('--max-object', default=15, type=int)
     parser.add_argument('--milestones', nargs='+', default=[6,], type=int,
