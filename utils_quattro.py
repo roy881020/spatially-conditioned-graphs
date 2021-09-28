@@ -108,12 +108,9 @@ class DataFactory(Dataset):
         return dict(boxes=boxes, labels=labels, scores=scores)
 
     def flip_boxes(self, detection, target, w):
-        try:
-            detection['boxes'] = pocket.ops.horizontal_flip_boxes(w, detection['boxes'])
-            target['boxes_h'] = pocket.ops.horizontal_flip_boxes(w, target['boxes_h'])
-            target['boxes_o'] = pocket.ops.horizontal_flip_boxes(w, target['boxes_o'])
-        except IndexError as e:
-            print(e)
+        detection['boxes'] = pocket.ops.horizontal_flip_boxes(w, detection['boxes'])
+        target['boxes_h'] = pocket.ops.horizontal_flip_boxes(w, target['boxes_h'])
+        target['boxes_o'] = pocket.ops.horizontal_flip_boxes(w, target['boxes_o'])
 
     def __getitem__(self, i):
         image, target = self.dataset[i]
@@ -121,7 +118,6 @@ class DataFactory(Dataset):
             target['labels'] = target['verb']
             # Convert ground truth boxes to zero-based index and the
             # representation from pixel indices to coordinates
-            print(len(target))
             target['boxes_h'][:, :2] -= 1
             target['boxes_o'][:, :2] -= 1
         else:
@@ -139,10 +135,7 @@ class DataFactory(Dataset):
         if self._flip[i]:
             image = hflip(image)
             w, _ = image.size
-            try:
-                self.flip_boxes(detection, target, w)
-            except IndexError as e:
-                print(self.dataset.filename(i))
+            self.flip_boxes(detection, target, w)
         image = pocket.ops.to_tensor(image, 'pil')
 
         return image, detection, target

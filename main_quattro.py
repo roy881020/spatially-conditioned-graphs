@@ -14,13 +14,12 @@ import torchvision
 import torch.distributed as dist
 import torch.multiprocessing as mp
 from torch.utils.data import DataLoader, DistributedSampler
-#os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
 
 import pocket
 from pocket.data import HICODet
 
 from models import SpatiallyConditionedGraph as SCG
-from utils import custom_collate, CustomisedDLE, DataFactory
+from utils_quattro import custom_collate, CustomisedDLE, DataFactory
 
 def main(rank, args):
 
@@ -83,7 +82,6 @@ def main(rank, args):
         distributed=True
     )
 
-
     if os.path.exists(args.checkpoint_path):
         print("=> Rank {}: continue from saved checkpoint".format(
             rank), args.checkpoint_path)
@@ -118,8 +116,6 @@ def main(rank, args):
                 param_group_2.append(v)
             else:
                 raise KeyError(f"Unknown parameter name {k}")
-
-
     # Fine-tune backbone with lower learning rate
     optim = torch.optim.AdamW([
         {'params': param_group_1, 'lr': args.learning_rate * args.lr_decay},
@@ -135,8 +131,6 @@ def main(rank, args):
     # Override optimiser and learning rate scheduler
     engine.update_state_key(optimizer=optim, lr_scheduler=lr_scheduler)
     engine.update_state_key(epoch=epoch, iteration=iteration)
-
-
 
     engine(args.num_epochs)
 
@@ -178,5 +172,3 @@ if __name__ == '__main__':
     os.environ["MASTER_PORT"] = "8080"
 
     mp.spawn(main, nprocs=args.world_size, args=(args,))
-
-    #main(args.world_size, args)

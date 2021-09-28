@@ -58,6 +58,7 @@ class GenericHOINetwork(nn.Module):
             detections, original_image_sizes, images.image_sizes
         ):
             boxes = det['boxes']
+
             boxes = transform.resize_boxes(boxes, o_im_s, im_s)
             det['boxes'] = boxes
 
