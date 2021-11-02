@@ -24,6 +24,8 @@ from utils import custom_collate, CustomisedDLE, DataFactory
 
 def main(rank, args):
 
+    import pdb; pdb.set_trace()
+
     dist.init_process_group(
         backend="nccl",
         init_method="env://",
