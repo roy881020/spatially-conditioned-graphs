@@ -128,7 +128,6 @@ class SpatiallyConditionedGraph(GenericHOINetwork):
         max_object: int = 15
     ) -> None:
 
-        import pdb; pdb.set_trace()
 
         detector = models.fasterrcnn_resnet_fpn(backbone_name,
             pretrained=pretrained)
