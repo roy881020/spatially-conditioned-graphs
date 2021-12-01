@@ -59,6 +59,7 @@ def main(args):
     
     with timer:
         test_ap = test(net, dataloader)
+    #import pdb;pdb.set_trace()
     print("Model at epoch: {} | time elapsed: {:.2f}s\n"
         "Full: {:.4f}, rare: {:.4f}, non-rare: {:.4f}".format(
         epoch, timer[0], test_ap.mean(),

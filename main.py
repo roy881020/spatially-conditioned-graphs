@@ -15,6 +15,9 @@ import torch.distributed as dist
 import torch.multiprocessing as mp
 from torch.utils.data import DataLoader, DistributedSampler
 #os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
+import wandb
+os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
+
 
 import pocket
 from pocket.data import HICODet
@@ -172,8 +175,17 @@ if __name__ == '__main__':
     parser.add_argument('--checkpoint-path', default='', type=str)
     parser.add_argument('--cache-dir', type=str, default='./checkpoints')
 
+
     args = parser.parse_args()
     print(args)
+
+    wandb.init(project="my-test-project", entity="sangbaeklee", group="experiment_1")
+
+    wandb.config = {
+        "learning_rate" : args.learning_rate,
+        "epochs" : args.num_epochs,
+        "batch_size" : args.batch_size
+    }
 
     os.environ["MASTER_ADDR"] = "localhost"
     os.environ["MASTER_PORT"] = "8080"

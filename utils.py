@@ -25,6 +25,7 @@ from hicodet.hicodet import HICODet
 import pocket
 from pocket.core import DistributedLearningEngine
 from pocket.utils import DetectionAPMeter, HandyTimer, BoxPairAssociation, all_gather
+import wandb
 
 def custom_collate(batch):
     images = []
@@ -194,6 +195,7 @@ def test(net, test_loader):
                 )
 
         meter.append(scores, interactions, labels)
+        #import pdb;pdb.set_trace()
 
     return meter.eval()
 
@@ -224,6 +226,9 @@ class CustomisedDLE(DistributedLearningEngine):
         self.intr_loss.append(loss_dict['interactiveness_loss'])
 
         self._synchronise_and_log_results(output, self.meter)
+        wandb.init(project="my-test-project", entity="sangbaeklee", group="experiment_1")
+        wandb.log({"hoi_loss": loss_dict['hoi_loss']})
+        wandb.log({"interactiveness_loss": loss_dict['interactiveness_loss']})
 
     def _on_end_epoch(self):
         timer = HandyTimer(maxlen=2)
