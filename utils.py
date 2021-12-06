@@ -226,9 +226,7 @@ class CustomisedDLE(DistributedLearningEngine):
         self.intr_loss.append(loss_dict['interactiveness_loss'])
 
         self._synchronise_and_log_results(output, self.meter)
-        wandb.init(project="my-test-project", entity="sangbaeklee", group="experiment_1")
-        wandb.log({"hoi_loss": loss_dict['hoi_loss']})
-        wandb.log({"interactiveness_loss": loss_dict['interactiveness_loss']})
+
 
     def _on_end_epoch(self):
         timer = HandyTimer(maxlen=2)
@@ -246,6 +244,9 @@ class CustomisedDLE(DistributedLearningEngine):
                     self._state.epoch, ap_train.mean().item(), timer[0],
                     ap_val.mean().item(), timer[1]
             ))
+            wandb.init(project="my-test-project", entity="sangbaeklee", group="experiment_1")
+            wandb.log({"train mAP": ap_train.mean().item()})
+            wandb.log({"validation mAP": ap_val.mean().item()})
             self.meter.reset()
         super()._on_end_epoch()
 
@@ -253,6 +254,11 @@ class CustomisedDLE(DistributedLearningEngine):
         super()._print_statistics()
         hoi_loss = self.hoi_loss.mean()
         intr_loss = self.intr_loss.mean()
+
+        wandb.init(project="my-test-project", entity="sangbaeklee", group="experiment_1")
+        wandb.log({"hoi_loss": hoi_loss})
+        wandb.log({"interactiveness_loss": intr_loss})
+
         if self._rank == 0:
             print(f"=> HOI classification loss: {hoi_loss:.4f},",
             f"interactiveness loss: {intr_loss:.4f}")
