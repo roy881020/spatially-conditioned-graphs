@@ -108,6 +108,8 @@ def main(rank, args):
         train_loader,
         val_loader,
         num_classes=num_classes,
+        wandb_project=args.wandb_project,
+        wandb_group=args.wandb_group,
         print_interval=args.print_interval,
         cache_dir=args.cache_dir
     )

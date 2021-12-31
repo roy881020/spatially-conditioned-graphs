@@ -200,10 +200,15 @@ def test(net, test_loader):
     return meter.eval()
 
 class CustomisedDLE(DistributedLearningEngine):
-    def __init__(self, net, train_loader, val_loader, num_classes=117, **kwargs):
+    def __init__(self, net, train_loader, val_loader, num_classes=117, wandb_project='my-test-project', wandb_group='experiments', **kwargs):
+        print('keyword')
+        print(kwargs.keys())
+        print(kwargs.items())
         super().__init__(net, None, train_loader, **kwargs)
         self.val_loader = val_loader
         self.num_classes = num_classes
+        self.wandb_project = wandb_project
+        self.wandb_group = wandb_group
 
     def _on_start(self):
         self.meter = DetectionAPMeter(self.num_classes, algorithm='11P')
@@ -244,7 +249,7 @@ class CustomisedDLE(DistributedLearningEngine):
                     self._state.epoch, ap_train.mean().item(), timer[0],
                     ap_val.mean().item(), timer[1]
             ))
-            wandb.init(project="my-test-project", entity="sangbaeklee", group="experiment_1")
+            wandb.init(project=self.wandb_project, entity="sangbaeklee", group=self.wandb_group)
             wandb.log({"train mAP": ap_train.mean().item()})
             wandb.log({"validation mAP": ap_val.mean().item()})
             self.meter.reset()
@@ -255,7 +260,7 @@ class CustomisedDLE(DistributedLearningEngine):
         hoi_loss = self.hoi_loss.mean()
         intr_loss = self.intr_loss.mean()
 
-        wandb.init(project="my-test-project", entity="sangbaeklee", group="experiment_1")
+        wandb.init(project=self.wandb_project, entity="sangbaeklee", group=self.wandb_group)
         wandb.log({"hoi_loss": hoi_loss})
         wandb.log({"interactiveness_loss": intr_loss})
 
