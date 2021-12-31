@@ -182,6 +182,7 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     print(args)
+    print('git test')
 
     wandb.init(project=args.wandb_project, entity="sangbaeklee", group=args.wandb_group)
 
