@@ -17,12 +17,13 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import matplotlib.patheffects as peff
 
-#sys.path.append('/'.join(os.path.abspath(sys.argv[0]).split('/')[:-2]))
-#sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname('diagnosis'))))
+# sys.path.append('/'.join(os.path.abspath(sys.argv[0]).split('/')[:-2]))
+# sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname('diagnosis'))))
 sys.path.remove('/home/roy/projects/pocket/pocket')
 sys.path.append('../')
 from utils import custom_collate, DataFactory
 from models import SpatiallyConditionedGraph as SCG
+
 
 def colour_pool(n):
     pool = [
@@ -35,7 +36,7 @@ def colour_pool(n):
     big_pool = []
     for _ in range(repeat):
         big_pool += pool
-    return big_pool + pool[:n%nc]
+    return big_pool + pool[:n % nc]
 
 
 def draw_boxes(ax, boxes):
@@ -48,10 +49,11 @@ def draw_boxes(ax, boxes):
         txt.set_path_effects([peff.withStroke(linewidth=5, foreground='#000000')])
         plt.draw()
 
+
 def visualise_entire_image(dataset, output):
     """Visualise bounding box pairs in the whole image by classes"""
-    bh=output['boxes_h']
-    bo=output['boxes_o']
+    bh = output['boxes_h']
+    bo = output['boxes_o']
     no = len(bo)
 
     bbox, inverse = torch.unique(torch.cat([bo, bh]), dim=0, return_inverse=True)
@@ -71,6 +73,7 @@ def visualise_entire_image(dataset, output):
     index = output['index']
     pred = output['prediction']
     labels = output['labels']
+    import pdb;pdb.set_trace()
 
     unique_actions = torch.unique(pred)
     for verb in unique_actions:
@@ -83,6 +86,7 @@ def visualise_entire_image(dataset, output):
                 f"score: {scores[idx]:.4f}, prior: {prior[0, idx]:.2f}, {prior[1, idx]:.2f}",
                 f"label: {bool(labels[idx])}"
             )
+    pdb.set_trace()
 
     # Draw the bounding boxes
     fig = plt.figure()
@@ -91,9 +95,9 @@ def visualise_entire_image(dataset, output):
     draw_boxes(ax, bbox)
     plt.show()
 
+
 @torch.no_grad()
 def main(args):
-
     dataset = DataFactory(
         name='hicodet', partition=args.partition,
         data_root=args.data_root,
@@ -117,19 +121,23 @@ def main(args):
         net.load_state_dict(checkpoint['model_state_dict'])
     elif len(args.model_path):
         print("\nWARNING: The given model path does not exist. "
-            "Proceed to use a randomly initialised model.\n")
+              "Proceed to use a randomly initialised model.\n")
     else:
         print("\nProceed with a randomly initialised model\n")
 
     # iterator = iter(dataloader)
     # image, detection, target = next(iterator)
-    
+
     image, detection, target = dataset[args.index]
-    image = [image]; detection = [detection]; target = [target]
+    image = [image];
+    detection = [detection];
+    target = [target]
 
     output = net(image, detection, target)
+    import pdb;pdb.set_trace()
     visualise_entire_image(dataset, output[0])
     # torch.save(output, 'data.pt')
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train an interaction head")
@@ -143,7 +151,8 @@ if __name__ == "__main__":
     parser.add_argument('--num-workers', default=2, type=int)
     parser.add_argument('--model-path', default='', type=str)
     parser.add_argument('--index', default=0, type=int)
-    
+    parser.add_argument('--base_model_path', default='../checkpoints/hicodet/ckpt_65863_07.pt', type=str)
+
     args = parser.parse_args()
     print(args)
 

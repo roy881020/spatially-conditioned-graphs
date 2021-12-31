@@ -174,12 +174,14 @@ if __name__ == '__main__':
     parser.add_argument('--print-interval', default=300, type=int)
     parser.add_argument('--checkpoint-path', default='', type=str)
     parser.add_argument('--cache-dir', type=str, default='./checkpoints')
+    parser.add_argument('--wandb-group', type=str, default='experiments')
+    parser.add_argument('--wandb-project', type=str, default='my-test-project')
 
 
     args = parser.parse_args()
     print(args)
 
-    wandb.init(project="my-test-project", entity="sangbaeklee", group="experiment_1")
+    wandb.init(project=args.wandb_project, entity="sangbaeklee", group=args.wandb_group)
 
     wandb.config = {
         "learning_rate" : args.learning_rate,
