@@ -195,7 +195,7 @@ def test(net, test_loader):
                 )
 
         meter.append(scores, interactions, labels)
-        #import pdb;pdb.set_trace()
+
 
     return meter.eval()
 
