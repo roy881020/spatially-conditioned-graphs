@@ -184,7 +184,7 @@ if __name__ == '__main__':
     print(args)
     print('git test')
 
-    #wandb.init(project=args.wandb_project, entity="sangbaeklee", group=args.wandb_group)
+    wandb.init(project=args.wandb_project, entity="sangbaeklee", group=args.wandb_group)
 
     wandb.config = {
         "learning_rate" : args.learning_rate,
