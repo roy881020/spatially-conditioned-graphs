@@ -177,7 +177,7 @@ class InteractionHead(Module):
             n_p = torch.as_tensor([n_p], device='cuda')
             dist.barrier()
             dist.all_reduce(n_p)
-            n_p = (n_p / world_size).item()
+            n_p = (n_p // world_size).item()
         loss = binary_focal_loss(
             weights, labels, reduction='sum', gamma=2.0
         )
