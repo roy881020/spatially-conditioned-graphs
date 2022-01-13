@@ -57,6 +57,24 @@ class DataFactory(Dataset):
                 target_transform=pocket.ops.ToTensor(input_format='dict')
             )
             self.human_idx = 49
+        elif name == 'hicodet_origin':
+            assert partition in ['train2015', 'test2015'], \
+                "Unknown HICO-DET partition " + partition
+            self.dataset = HICODet(
+                root=os.path.join(data_root, 'hico_20160224_det/images', partition),
+                anno_file=os.path.join(data_root, 'instances_{}.json_origin'.format(partition)),
+                target_transform=pocket.ops.ToTensor(input_format='dict')
+            )
+            self.human_idx = 49
+        elif name == 'hicodet_all_quattro':
+            assert partition in ['train2015', 'test2015'], \
+                "Unknown HICO-DET partition " + partition
+            self.dataset = HICODet(
+                root=os.path.join(data_root, 'hico_20160224_det/images', partition),
+                anno_file=os.path.join(data_root, 'instances_{}.json_all_quattro'.format(partition)),
+                target_transform=pocket.ops.ToTensor(input_format='dict')
+            )
+            self.human_idx = 49
         else:
             assert partition in ['train', 'val', 'trainval', 'test'], \
                 "Unknown V-COCO partition " + partition
