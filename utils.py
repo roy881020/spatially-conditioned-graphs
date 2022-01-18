@@ -136,7 +136,7 @@ class DataFactory(Dataset):
 
     def __getitem__(self, i):
         image, target = self.dataset[i]
-        if self.name == 'hicodet':
+        if self.name == 'hicodet' or self.name == 'hicodet_origin':
             target['labels'] = target['verb']
             # Convert ground truth boxes to zero-based index and the
             # representation from pixel indices to coordinates
