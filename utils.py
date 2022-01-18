@@ -45,7 +45,7 @@ class DataFactory(Dataset):
             box_score_thresh_h=0.2,
             box_score_thresh_o=0.2
             ):
-        if name not in ['hicodet', 'vcoco']:
+        if name not in ['hicodet', 'vcoco','hicodet_origin']:
             raise ValueError("Unknown dataset ", name)
 
         if name == 'hicodet':
