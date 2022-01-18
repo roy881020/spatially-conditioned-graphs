@@ -71,7 +71,7 @@ def main(rank, args):
     # Fix random seed for model synchronisation
     torch.manual_seed(args.random_seed)
 
-    if args.dataset == 'hicodet':
+    if args.dataset == 'hicodet' or args.dataset == 'hicodet_origin':
         object_to_target = train_loader.dataset.dataset.object_to_verb
         human_idx = 49
         num_classes = 117
